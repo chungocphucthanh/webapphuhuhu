@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*-swp
+
+#AI tools
+.remember/
+
+# Documents & Specs
+*.yaml
+*.yml
+*.pdf
+
+# Generated M1 solver output
+/m1_logic/sat_result.json
+/m1_logic/unsat_result.json
+
+# Local M2 development checks
+/m2_ilp/test_inputs.py
+
+# Local Vinh M3 verification; preserve the Lead's existing tracked tests
+/m3_automata/tests/test_rules.py

@@ -1,0 +1,46 @@
+{
+  "states": [
+    "run0",
+    "run1",
+    "run2",
+    "dead"
+  ],
+  "alphabet": [
+    "M",
+    "A",
+    "N",
+    "-"
+  ],
+  "start": "run0",
+  "accepting": [
+    "run0",
+    "run1",
+    "run2"
+  ],
+  "transitions": {
+    "run0": {
+      "M": "run1",
+      "A": "run1",
+      "N": "run1",
+      "-": "run0"
+    },
+    "run1": {
+      "M": "run2",
+      "A": "run2",
+      "N": "run2",
+      "-": "run0"
+    },
+    "run2": {
+      "M": "dead",
+      "A": "dead",
+      "N": "dead",
+      "-": "run0"
+    },
+    "dead": {
+      "M": "dead",
+      "A": "dead",
+      "N": "dead",
+      "-": "dead"
+    }
+  }
+}

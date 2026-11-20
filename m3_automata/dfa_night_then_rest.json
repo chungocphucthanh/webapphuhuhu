@@ -1,0 +1,38 @@
+{
+  "states": [
+    "free",
+    "after_night",
+    "dead"
+  ],
+  "alphabet": [
+    "M",
+    "A",
+    "N",
+    "-"
+  ],
+  "start": "free",
+  "accepting": [
+    "free",
+    "after_night"
+  ],
+  "transitions": {
+    "free": {
+      "M": "free",
+      "A": "free",
+      "N": "after_night",
+      "-": "free"
+    },
+    "after_night": {
+      "M": "dead",
+      "A": "dead",
+      "N": "dead",
+      "-": "free"
+    },
+    "dead": {
+      "M": "dead",
+      "A": "dead",
+      "N": "dead",
+      "-": "dead"
+    }
+  }
+}

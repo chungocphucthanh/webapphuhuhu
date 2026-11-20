@@ -1,0 +1,18 @@
+{
+  "availability_mode": "seeded",
+  "baseline_max_load": 19,
+  "beats_baseline": true,
+  "fatigue": 0,
+  "fatigue_k": 3,
+  "flip_rate": 0.3,
+  "l1": 36.328767,
+  "location": 28,
+  "max_load": 11,
+  "min_load": 10,
+  "seed": 1358677812,
+  "spread": 1,
+  "staff_used": 73,
+  "status": "optimal",
+  "t_star": 11,
+  "travel": 0
+}
