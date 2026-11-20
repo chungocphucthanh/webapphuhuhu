@@ -97,9 +97,67 @@ def test_one_week_slice_can_be_solved_with_dfa_constraints():
     at.selectbox(key="dataset_preset").select("week1").run()
     at.radio(key="route").set_value("pipeline").run()
     at.button(key="solve").click().run()
-    at.selectbox(key="active_schedule").select("Solved Plan").run()
+    assert at.selectbox(key="active_schedule").value == "Solved Plan"
     assert not at.exception
     assert any("61/61" in item.value for item in at.success)
+
+
+def test_presenter_can_advance_and_return_without_losing_the_selected_schedule():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.button(key="start_presentation").click().run()
+    at.button(key="stage_next").click().run()
+    at.selectbox(key="active_schedule").select("Baseline").run()
+
+    at.button(key="stage_next").click().run()
+    assert not at.exception
+    assert any("không được DFA chấp nhận" in item.value for item in at.warning)
+    at.button(key="stage_previous").click().run()
+    assert at.selectbox(key="active_schedule").value == "Baseline"
+
+
+def test_single_session_view_follows_the_current_week_filter():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.radio(key="route").set_value("m2").run()
+    schedule = next(frame.value for frame in at.dataframe if "Mã ca" in frame.value.columns)
+    session = schedule.loc[schedule["Tuần"].eq(1), "Mã ca"].iloc[-1]
+    at.selectbox(key="plan_session").select(session).run()
+    at.selectbox(key="week_filter").select(1).run()
+    assert at.selectbox(key="plan_session").value == session
+
+    at.selectbox(key="week_filter").select(2).run()
+    second_week = next(frame.value for frame in at.dataframe if "Mã ca" in frame.value.columns)
+    assert not at.exception
+    assert at.selectbox(key="plan_session").value in second_week["Mã ca"].tolist()
+
+
+def test_rule_filter_exposes_the_rule_name_and_only_matching_staff():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.radio(key="route").set_value("m3").run()
+    at.selectbox(key="active_schedule").select("Baseline").run()
+    rules = at.selectbox(key="rule_filter")
+    assert "R2 · Nghỉ ngày kế tiếp sau ca tối, nếu còn trong kỳ" in rules.options
+    rules.select("R2").run()
+    staff = next(frame.value for frame in at.dataframe if "Quy tắc vi phạm" in frame.value.columns)
+    assert not staff.empty
+    assert all("R2" in value.split(", ") for value in staff["Quy tắc vi phạm"])
+
+    at.selectbox(key="active_schedule").select("M2 + R1xR2xR3").run()
+    assert any("Không có giám thị khớp bộ lọc" in item.value for item in at.info)
+
+
+
+def test_unsat_reports_the_session_and_people_in_the_conflict():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.radio(key="route").set_value("m1").run()
+    at.button(key="sat_demo").click().run()
+    assert not at.exception
+    assert any("UNSAT" in item.value for item in at.error)
+    core = " ".join(item.value for item in at.markdown if "iap-conflict" in item.value)
+    assert "H3" in core and "H1" in core
+    assert "Morning_CS1" in core and "cần 2 giám thị" in core
+    assert "CB1" in core and "CB2" in core and "CB3" not in core
+    at.button(key="sat_demo").click().run()
+    assert at.selectbox(key="sat_witness_session").value == "Morning_CS1"
 
 
 def test_dfa_lab_rejects_three_consecutive_days_and_accepts_a_break():

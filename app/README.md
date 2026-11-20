@@ -19,12 +19,25 @@ All styling assets are local; no external typeface or script is needed.
 
 ## Live walkthrough
 
+Use **Bắt đầu trình chiếu**, then switch sections from the top bar or use
+**Phần trước** and **Phần tiếp**. Changing sections returns to the top; changing
+data or schedule keeps the controls in place. Live solving updates the selected
+schedule when it returns a feasible plan. Source provenance lives in **Tùy chọn dữ liệu**.
+Implementation details stay out of the projected UI:
+
+| Module | Implementation reference |
+| --- | --- |
+| M1 | `encode_invigilator_assignment`, `solve_instance`, `extract_minimal_core`, and `clause_to_linear`. CNF encoding is linear in the emitted literals; the deletion-based minimizer makes at most quadratic SAT calls in the initial core size. |
+| M2 | `create_variables`, `build_model`, `solve`, and `check_schedule`. The sparse assignment variables use storage proportional to the available staff/session pairs. CBC's search tree can grow exponentially. |
+| M3 | `DFA.run`, `DFA.accepts`, `product`, `minimize`, and `add_regular_constraint`. With the fixed alphabet, a DFA run is linear in days and uses constant extra memory; a trace stores a state per day. |
+| M4 | `WeeklyWorkload`, `calibrate`, `simulate`, and `fixed_point`. Retaining the full trajectory takes time and storage proportional to staff times simulation steps. |
+
 1. **Tổng quan kiến trúc:** show the shared dataset and follow the inputs and outputs through M1–M4.
-2. **Logic và SAT:** select the toy example or the seeded slice, then switch between SAT and UNSAT. Compare the SAT witness with the inclusion-minimal UNSAT core and inspect the Logic-to-0/1-Linear bridge.
-3. **Tối ưu lịch ILP:** select a schedule or solve a subset with CBC. Compare peak load, L1 deviation and soft penalties; filter the weekly table by campus and export the visible rows. The CSV export is a presentation report, not a dense M2 schedule file.
-4. **Quy tắc thời gian DFA:** select a sample word or type your own over `M`, `A`, `N`, `-`. Inspect the first violating day and compare the submitted product with its minimized form. On a real schedule, select a staff member to inspect their daily trace.
-5. **Fatigue và công bằng:** set the initial perturbation for one staff member. Compare their trajectory with the unchanged fixed point and inspect the fairness variance or spread over time. Fatigue is a workload proxy, not a measurement.
-6. **Demo đầu-cuối:** inspect SAT, the weekly assignment table, DFA acceptance, and the fatigue and fairness charts on one screen. Switch between the baseline and the precomputed M2+DFA schedule to show why hard-rule feasibility alone is not enough.
+2. **Logic và SAT:** select one session to see the people assigned in the SAT witness. Use **Thử UNSAT** to show the exact sessions and people in the inclusion-minimal conflict, then **Thử SAT** to return to a feasible example. The second tab contains the Logic-to-0/1 bridge.
+3. **Tối ưu lịch ILP:** compare the peak-load and fairness cards before opening the table. Filter by week and campus, select a single session to show the assigned staff, or switch to the workload chart. The CSV export is a presentation report, not a dense M2 schedule file.
+4. **Quy tắc thời gian DFA:** read R1–R3 and their counts above the roster table. Filter the roster by one rule, or switch to the word lab to demonstrate when a sequence first violates a rule.
+5. **Fatigue và công bằng:** adjust the initial perturbation, then switch between the individual trajectory, team fairness, model and historical load. Open the chart's data popover on demand.
+6. **Demo đầu-cuối:** switch between SAT, the weekly assignment table, DFA acceptance and fatigue using four tabs on one page. Switch between the baseline and the precomputed M2+DFA schedule to distinguish hard-rule feasibility from temporal validity.
 
 ## Data and solver limits
 

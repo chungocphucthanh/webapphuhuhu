@@ -35,26 +35,15 @@ def apply_style() -> None:
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
-def hero(track: str, title: str, description: str) -> None:
+def hero(track: str, title: str, description: str, *, compact: bool = False) -> None:
+    style = "iap-hero iap-hero-compact" if compact else "iap-hero"
+    label = "" if compact else f'<p class="iap-track">{escape(track)}</p>'
     st.markdown(
-        '<div class="iap-hero">'
-        f'<p class="iap-track">{escape(track)}</p>'
+        f'<div class="{style}">'
+        f"{label}"
         f'<h1>{escape(title)}</h1><p>{escape(description)}</p></div>',
         unsafe_allow_html=True,
     )
-
-
-def badge(kind: str, label: str) -> str:
-    style = {"Hàm / lớp": "code", "Thuật toán / cấu trúc": "algorithm", "Big-O": "bound"}[kind]
-    return f'<code class="iap-badge iap-{style}">{escape(label)}</code>'
-
-
-def technical(symbols: tuple[str, ...], algorithms: tuple[str, ...], bounds: tuple[str, ...], note: str) -> None:
-    with st.expander("Góc kỹ thuật"):
-        for kind, values in (("Hàm / lớp", symbols), ("Thuật toán / cấu trúc", algorithms), ("Big-O", bounds)):
-            pills = " ".join(badge(kind, value) for value in values)
-            st.markdown(f'<div class="iap-badges"><b>{kind}</b>{pills}</div>', unsafe_allow_html=True)
-        st.write(note)
 
 
 def spreadsheet_text(value):
