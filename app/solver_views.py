@@ -160,6 +160,7 @@ def solve_schedule_in_app(
     if not solution.assigned:
         return {
             "status": solution.status,
+            "stage_statuses": {stage: result.status for stage, result in solution.stages.items()},
             "assigned": frozenset(),
             "t_star": None,
             "fatigue_k": k,
@@ -188,6 +189,7 @@ def solve_schedule_in_app(
     beats = bool(baseline_metrics and metrics["max_load"] < baseline_metrics["max_load"])
     return {
         "status": solution.status,
+        "stage_statuses": {stage: result.status for stage, result in solution.stages.items()},
         "assigned": solution.assigned,
         "t_star": solution.t_star,
         "fatigue_k": k,

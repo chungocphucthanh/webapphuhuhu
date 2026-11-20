@@ -51,34 +51,76 @@ def test_run_m5_reproducibility_and_input_protection(m5_artifacts, tmp_path):
     assert {"Baseline", "M2 Optimal", "M4 Fatigue-Aware"} <= set(fallback_scheds)
 
 
-def test_streamlit_app_launches_and_renders_all_four_modules_on_one_page():
-    at = AppTest.from_file(APP_SCRIPT, default_timeout=30)
-    at.run()
+def test_pipeline_audits_the_selected_full_schedule_across_modules():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.radio(key="route").set_value("pipeline").run()
     assert not at.exception
-    assert len(at.title) == 1
-    headers = [h.value for h in at.header]
-    assert any("Module 2" in h for h in headers)
-    assert any("Module 1" in h for h in headers)
-    assert any("Module 3" in h for h in headers)
-    assert any("Module 4" in h for h in headers)
-    metric_labels = [m.label for m in at.metric]
-    assert "Schedule valid (DFA-accepted)" in metric_labels
-    assert len(at.dataframe) >= 4
+    assert any("73/73" in item.value for item in at.success)
+    assert any("Giám thị" in frame.value.columns for frame in at.dataframe)
+
+    at.selectbox(key="active_schedule").select("Baseline").run()
+    assert not at.exception
+    assert any("không được DFA chấp nhận" in item.value for item in at.warning)
+    at.radio(key="route").set_value("m1").run()
+    at.radio(key="route").set_value("pipeline").run()
+    assert any("không được DFA chấp nhận" in item.value for item in at.warning)
 
 
-def test_streamlit_app_interactive_presets_and_unsat_diagnosis():
-    at = AppTest.from_file(APP_SCRIPT, default_timeout=30)
-    at.run()
+def test_live_solve_is_shared_across_pages_but_not_across_input_changes():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.selectbox(key="dataset_preset").select("toy").run()
+    at.radio(key="route").set_value("m2").run()
+    at.button(key="solve").click().run()
     assert not at.exception
+    plan = next(frame.value for frame in at.dataframe if "Đã xếp" in frame.value.columns)
+    assert plan["Đã xếp"].tolist() == [2, 2]
 
-    # Switch to 1-Week Real Slice (enforces M3 DFA rules live -> DFA-accepted YES).
-    at.selectbox(key="dataset_preset").select("week1").run()
-    assert not at.exception
-    assert any("Schedule valid (DFA-accepted): YES" in s.value for s in at.success)
-
-    # Switch to M1 Seeded Slice in UNSAT mode -> displays M1 UNSAT core + M2 shortage diagnosis.
-    at.selectbox(key="dataset_preset").select("m1_slice").run()
-    assert not at.exception
+    at.radio(key="route").set_value("pipeline").run()
+    assert any("3/3" in item.value for item in at.success)
+    at.slider(key="time_limit").set_value(20).run()
+    at.slider(key="time_limit").set_value(15).run()
+    assert at.selectbox(key="active_schedule").value == "Baseline"
+    assert "Lịch vừa giải bằng CBC" not in at.selectbox(key="active_schedule").options
+    at.button(key="solve").click().run()
+    assert any("3/3" in item.value for item in at.success)
     at.radio(key="m1_scenario").set_value("unsat").run()
     assert not at.exception
-    assert any("Schedule valid (DFA-accepted): NO" in e.value for e in at.error)
+    assert any("UNSAT" in item.value for item in at.error)
+    assert not any("Đã xếp" in frame.value.columns for frame in at.dataframe)
+    at.button(key="solve").click().run()
+    shortage = next(frame.value for frame in at.dataframe if "Còn thiếu" in frame.value.columns)
+    assert shortage["Còn thiếu"].tolist() == [1]
+
+
+def test_one_week_slice_can_be_solved_with_dfa_constraints():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.selectbox(key="dataset_preset").select("week1").run()
+    at.radio(key="route").set_value("pipeline").run()
+    at.button(key="solve").click().run()
+    at.selectbox(key="active_schedule").select("Solved Plan").run()
+    assert not at.exception
+    assert any("61/61" in item.value for item in at.success)
+
+
+def test_dfa_lab_rejects_three_consecutive_days_and_accepts_a_break():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.radio(key="route").set_value("m3").run()
+    at.text_input(key="dfa_word").set_value("MAM").run()
+    assert not at.exception
+    assert any("ngày 3" in item.value for item in at.warning)
+    trace = next(frame.value for frame in at.dataframe if "Ký hiệu" in frame.value.columns)
+    assert trace["Ký hiệu"].tolist() == ["M", "A", "M"]
+
+    at.text_input(key="dfa_word").set_value("MA-M").run()
+    assert any("được DFA chấp nhận" in item.value for item in at.success)
+
+
+def test_fatigue_perturbation_changes_initial_state_not_equilibrium():
+    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
+    at.radio(key="route").set_value("m4").run()
+    before = {metric.label: metric.value for metric in at.metric}
+    at.slider(key="shock_amount").set_value(4.0).run()
+    assert not at.exception
+    after = {metric.label: metric.value for metric in at.metric}
+    assert float(after["F tại tuần 0"]) - float(before["F tại tuần 0"]) == pytest.approx(4)
+    assert after["Điểm cân bằng F*"] == before["Điểm cân bằng F*"]
