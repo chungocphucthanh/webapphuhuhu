@@ -145,6 +145,15 @@ def run_m5(seed: int, out_dir: Path | None = None, *, weeks: int = 52) -> dict:
     return clean
 
 
+def _add_live_dfa_schedule(inst: Instance, schedules: dict, k: int) -> bool:
+    suite = load_automata_suite()
+    solution, _, _ = solve_with_rules(inst, ModelConfig(fatigue_k=k, time_limit=150), suite["minimal"])
+    if not solution.assigned or check_schedule(inst, solution.assigned):
+        return False
+    schedules["M2 + R1xR2xR3"] = solution.assigned
+    return True
+
+
 def load_full_schedules(
     seed: int,
     *,
@@ -154,18 +163,27 @@ def load_full_schedules(
     """Load precomputed full-dataset schedules if current, else fall back cleanly."""
     inst = build_instance(seed)
     path = DEFAULT_BUNDLE if bundle_path is None else Path(bundle_path)
+    saved_schedules = None
     if path.is_file():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
-            if raw.get("seed") == inst.seed and raw.get("dataset_sha256") == _dataset_sha256():
-                schedules = {
+            if (isinstance(raw, dict) and raw.get("seed") == inst.seed
+                    and raw.get("dataset_sha256") == _dataset_sha256()
+                    and isinstance(raw.get("schedules"), dict)):
+                candidates = {
                     name: frozenset(tuple(pair) for pair in pairs)
                     for name, pairs in raw["schedules"].items()
                 }
-                if all(not check_schedule(inst, pairs) for pairs in schedules.values()):
-                    return inst, schedules, "precomputed bundle (app/m5_bundle.json)"
-        except (OSError, KeyError, TypeError, ValueError):
+                if candidates and all(not check_schedule(inst, pairs) for pairs in candidates.values()):
+                    saved_schedules = candidates
+        except (OSError, TypeError, ValueError):
             pass
+    if saved_schedules is not None:
+        source = "precomputed bundle (app/m5_bundle.json)"
+        if compute_m3_live and "M2 + R1xR2xR3" not in saved_schedules:
+            if _add_live_dfa_schedule(inst, saved_schedules, fit_fatigue_k(inst)):
+                source = "precomputed bundle + live DFA"
+        return inst, saved_schedules, source
 
     k = fit_fatigue_k(inst)
     m2_assigned = _load_or_solve_m2(inst, k)
@@ -176,15 +194,7 @@ def load_full_schedules(
         "M4 Fatigue-Aware": m4_assigned,
     }
     if compute_m3_live:
-        suite = load_automata_suite()
-        sol_m3, _, _ = solve_with_rules(inst, ModelConfig(fatigue_k=k, time_limit=150), suite["minimal"])
-        if sol_m3.assigned and not check_schedule(inst, sol_m3.assigned):
-            schedules = {
-                "Baseline": schedules["Baseline"],
-                "M2 Optimal": m2_assigned,
-                "M2 + R1xR2xR3": sol_m3.assigned,
-                "M4 Fatigue-Aware": m4_assigned,
-            }
+        _add_live_dfa_schedule(inst, schedules, k)
     return inst, schedules, "live repository artifacts"
 
 
