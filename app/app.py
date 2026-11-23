@@ -26,13 +26,17 @@ from app.presentation import PRESETS, apply_style, hero, memo, schedule_label
 from app.presentation_views import (
     dynamics_panel,
     logic_panel,
+    m3_rules_experiment_tab,
+    m3_theory_tab,
     overview,
     plan_panel,
+    pumping_lemma_tab,
     solve_status,
     temporal_panel,
     word_lab,
 )
 from app.solver_views import run_m1_check, solve_schedule_in_app
+from app.theory_content import render_pipeline_theory
 from m1_logic.data_loader import REQUIRED_COLUMNS, STAFF_COLUMN
 from m2_ilp.config import TEAM_ID
 from m2_ilp.validate import check_schedule
@@ -192,37 +196,47 @@ def main() -> None:
         st.session_state["iap_results"] = {}
         st.session_state.pop("iap_solved", None)
         st.session_state.pop("iap_active", None)
+        for exp_key in ("iap_m1_exp", "iap_m2_exp", "iap_m2_ce", "iap_m3_exp_solve"):
+            st.session_state.pop(exp_key, None)
 
     solve_id = (data_id, enforce, fatigue, seconds)
     if st.session_state.get("iap_solver_input") != solve_id:
         st.session_state["iap_solver_input"] = solve_id
         st.session_state.pop("iap_solved", None)
 
+    # Keep each route in its own container block so st.tabs never mounts onto stale column blocks in Streamlit 1.36.
+    route_slots = {name: st.container() for name in ROUTES}
+    active_slot = route_slots[route]
+
     if route == "overview":
-        overview(cached_preset(seed, "full", "sat")[1])
+        with active_slot:
+            overview(cached_preset(seed, "full", "sat")[1])
         return
 
     if preset == "upload":
         if dataset_file is None:
-            st.info("Mở **Tùy chọn dữ liệu** để tải CSV cùng cấu trúc với `data/input.csv`.")
-            if route == "m3":
-                word_lab()
+            with active_slot:
+                st.info("Mở **Tùy chọn dữ liệu** để tải CSV cùng cấu trúc với `data/input.csv`.")
+                if route == "m3":
+                    word_lab()
             return
         try:
             logic_data, inst = memo("upload", data_id, lambda: uploaded_dataset(dataset_file.getvalue(), seed))
         except (ValueError, OSError, csv.Error):
-            st.error("CSV không hợp lệ. Kiểm tra mã hóa UTF-8, tiêu đề và các dòng trùng. "
-                     "Demo nhận tối đa 512 KiB, 2.000 dòng, 150 người, 150 ca và 120 ngày.")
-            if route == "m3":
-                word_lab()
+            with active_slot:
+                st.error("CSV không hợp lệ. Kiểm tra mã hóa UTF-8, tiêu đề và các dòng trùng. "
+                         "Demo nhận tối đa 512 KiB, 2.000 dòng, 150 người, 150 ca và 120 ngày.")
+                if route == "m3":
+                    word_lab()
             return
     else:
         logic_data, inst = cached_preset(seed, preset, scenario)
 
     if route == "pipeline":
-        sat_tab, plan_tab, dfa_tab, fatigue_tab = st.tabs(
-            ("1 · Khả thi", "2 · Lịch phân công", "3 · Quy tắc DFA", "4 · Fatigue"),
-        )
+        with active_slot:
+            sat_tab, plan_tab, dfa_tab, fatigue_tab = st.tabs(
+                ("1 · Khả thi", "2 · Lịch phân công", "3 · Quy tắc DFA", "4 · Fatigue"),
+            )
 
     if route in ("m1", "pipeline"):
         with st.spinner("Đang kiểm tra các ràng buộc cứng…"):
@@ -238,7 +252,8 @@ def main() -> None:
                 on_click=st.session_state.update,
                 args=({"dataset_preset": demo_preset, "m1_scenario": target},),
             )
-            logic_panel(result)
+            with active_slot:
+                logic_panel(result, logic_data=logic_data)
             return
 
     source_text = "Lịch gốc của bộ dữ liệu; chưa chạy CBC."
@@ -249,7 +264,8 @@ def main() -> None:
                 inst, schedules, source = cached_full(seed, live_m3, mtime)
         except (OSError, ValueError, RuntimeError, PulpSolverError):
             LOGGER.exception("Could not load the full-dataset schedules")
-            st.error("Không nạp được lịch toàn bộ. Tạo lại gói tính trước theo app/README.md hoặc chọn lát cắt.")
+            with active_slot:
+                st.error("Không nạp được lịch toàn bộ. Tạo lại gói tính trước theo app/README.md hoặc chọn lát cắt.")
             return
         source_label = {
             "precomputed bundle (app/m5_bundle.json)": "gói ngoại tuyến đã tính trước",
@@ -258,23 +274,27 @@ def main() -> None:
         }
         source_text = source_label[source].capitalize() + "."
         if "M2 + R1xR2xR3" not in schedules:
-            st.info("Chưa có lịch M2 + DFA trong nguồn hiện tại. Tạo gói ngoại tuyến hoặc bật tính bổ sung.")
+            with active_slot:
+                st.info("Chưa có lịch M2 + DFA trong nguồn hiện tại. Tạo gói ngoại tuyến hoặc bật tính bổ sung.")
         if schedule_file is not None:
             if schedule_file.size > 2 * 1024 * 1024:
-                st.error("CSV lịch vượt quá 2 MiB. Chọn tệp lịch gọn hơn.")
+                with active_slot:
+                    st.error("CSV lịch vượt quá 2 MiB. Chọn tệp lịch gọn hơn.")
                 return
             try:
                 identity = sha256(schedule_file.getbuffer()).digest()
                 pairs = memo("schedule_upload", (inst, identity), lambda: parse_uploaded_schedule(inst, schedule_file.getvalue()))
                 schedules = {**schedules, "Uploaded Schedule": pairs}
             except (OSError, ValueError, csv.Error):
-                st.error("CSV lịch bị từ chối. Cần đủ cặp giám thị–ca, cột invigilator_id, session_id, assigned (0/1) và lịch thỏa H1–H3.")
+                with active_slot:
+                    st.error("CSV lịch bị từ chối. Cần đủ cặp giám thị–ca, cột invigilator_id, session_id, assigned (0/1) và lịch thỏa H1–H3.")
     else:
         schedules = memo("baseline", data_id, lambda: {"Baseline": frozenset(inst.baseline)}
                          if inst.baseline and not check_schedule(inst, inst.baseline) else {})
         if action_column.button("Giải lịch bằng CBC", type="primary", key="solve", use_container_width=True):
             if preset == "upload" and enforce and len(inst.staff_ids) * ((max(inst.day) - min(inst.day)).days + 1) > 5_000:
-                st.warning("Dữ liệu quá lớn để dựng mô hình DFA trực tiếp. Chọn lát cắt nhỏ hơn hoặc bỏ tùy chọn R1–R3.")
+                with active_slot:
+                    st.warning("Dữ liệu quá lớn để dựng mô hình DFA trực tiếp. Chọn lát cắt nhỏ hơn hoặc bỏ tùy chọn R1–R3.")
                 return
             try:
                 solved = solve_schedule_in_app(inst, enforce_m3=enforce, include_m4_soft=fatigue, time_limit=seconds)
@@ -284,22 +304,25 @@ def main() -> None:
             except (OSError, ValueError, RuntimeError, PulpSolverError):
                 st.session_state.pop("iap_solved", None)
                 LOGGER.exception("CBC live solve failed")
-                st.error("Không chạy được CBC hoặc lịch không vượt qua kiểm tra. Thử ví dụ nhỏ và kiểm tra cấu hình CBC.")
+                with active_slot:
+                    st.error("Không chạy được CBC hoặc lịch không vượt qua kiểm tra. Thử ví dụ nhỏ và kiểm tra cấu hình CBC.")
         stored = st.session_state.get("iap_solved")
         if stored is not None:
-            solve_status(stored)
+            with active_slot:
+                solve_status(stored)
             if stored["assigned"]:
                 schedules = {**schedules, "Solved Plan": stored["assigned"]}
 
     if not schedules:
         schedule_slot.selectbox("Lịch đang phân tích", ["Chưa có lịch"], disabled=True, key="empty_schedule")
-        if route == "pipeline":
-            for tab in (plan_tab, dfa_tab, fatigue_tab):
-                tab.info("Chưa có lịch để phân tích. Chọn dữ liệu khả thi hoặc bấm Giải lịch bằng CBC.")
-        else:
-            st.info("Chưa có lịch để phân tích.")
-        if route == "m3":
-            word_lab()
+        with active_slot:
+            if route == "pipeline":
+                for tab in (plan_tab, dfa_tab, fatigue_tab):
+                    tab.info("Chưa có lịch để phân tích. Chọn dữ liệu khả thi hoặc bấm Giải lịch bằng CBC.")
+            else:
+                st.info("Chưa có lịch để phân tích.")
+            if route == "m3":
+                word_lab()
         result_source.write("**Nguồn kết quả:** chưa có lịch.")
         return
     preferred = next(name for name in ("Uploaded Schedule", "M2 + R1xR2xR3", "Solved Plan", *schedules) if name in schedules)
@@ -319,16 +342,34 @@ def main() -> None:
             temporal_panel(inst, schedules, active, compact=True)
         with fatigue_tab:
             dynamics_panel(inst, schedules, active, compact=True)
+        with active_slot:
+            with st.expander("Mạch lý thuyết kết nối 4 mô hình trên lịch đang chọn", expanded=False):
+                render_pipeline_theory(inst, schedule_label(active))
     elif route == "m2":
-        plan_panel(inst, schedules, active)
+        with active_slot:
+            plan_panel(inst, schedules, active)
     elif route == "m3":
-        audit_tab, lab_tab = st.tabs(("Kiểm tra lịch", "Thử chuỗi ngày"))
-        with audit_tab:
-            temporal_panel(inst, schedules, active)
-        with lab_tab:
-            word_lab()
+        with active_slot:
+            audit_tab, lab_tab, theory_tab, rules_tab, pump_tab = st.tabs((
+                "Kiểm tra lịch",
+                "Thử chuỗi ngày",
+                "Lý thuyết M3 (Slides)",
+                "Thí nghiệm R1–R4",
+                "Pumping Lemma",
+            ))
+            with audit_tab:
+                temporal_panel(inst, schedules, active)
+            with lab_tab:
+                word_lab()
+            with theory_tab:
+                m3_theory_tab()
+            with rules_tab:
+                m3_rules_experiment_tab(inst, schedules, active, seconds)
+            with pump_tab:
+                pumping_lemma_tab()
     elif route == "m4":
-        dynamics_panel(inst, schedules, active)
+        with active_slot:
+            dynamics_panel(inst, schedules, active)
     if active == "Uploaded Schedule":
         source_text = "Lịch CSV tải lên đã được kiểm tra H1–H3."
     elif active == "Solved Plan":

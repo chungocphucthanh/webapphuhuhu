@@ -1,0 +1,261 @@
+diff --git a/app/m2_section.py b/app/m2_section.py
+new file mode 100644
+index 0000000..df869e4
+--- /dev/null
++++ b/app/m2_section.py
+@@ -0,0 +1,185 @@
++"""Module 2 dashboard section: schedule loading, bounded CBC solving, validation, and comparison."""
++from __future__ import annotations
++from dataclasses import dataclass, replace
++from pathlib import Path
++import tempfile
++import pandas as pd
++import pulp
++import streamlit as st
++from app.data_context import DatasetContext
++from m2_ilp.config import M2_DIR, ModelConfig
++from m2_ilp.metrics import compute_metrics
++from m2_ilp.model import build_model
++from m2_ilp.soft import fit_fatigue_k
++from m2_ilp.solve import run_cbc
++from m2_ilp.validate import check_schedule
++from m4_dynamics.fatigue import calibrate, fit_threshold, simulate_history
++from m4_dynamics.planning import add_fatigue_soft_constraints
++from m4_dynamics.workload import read_schedule, week_layout, weekly_workload
++
++DEFAULT_M2_PATH, DEFAULT_M4_PATH = M2_DIR / "schedule.csv", M2_DIR.parent / "m4_dynamics" / "fatigue_aware_schedule.csv"
++SCHEDULE_SOURCES: tuple[str, ...] = ("m2", "m4", "baseline", "live", "uploaded")
++WEEKLY_COLUMNS: tuple[str, ...] = ("week", "date", "session_id", "campus", "time", "invigilator_id", "preference")
++
++@dataclass(frozen=True)
++class ScheduleSelection:
++    assignment: frozenset[tuple[int, int]]
++    source_name: str
++    feasible: bool
++    violations: tuple[str, ...]
++    metrics: dict[str, int | float | bool]
++    baseline_assignment: frozenset[tuple[int, int]]
++    baseline_metrics: dict[str, int | float | bool]
++    m2_assignment: frozenset[tuple[int, int]]
++    m4_assignment: frozenset[tuple[int, int]]
++    weekly_rows: tuple[dict[str, object], ...]
++    comparison_rows: tuple[dict[str, object], ...] = ()
++
++def parse_uploaded_schedule(inst, csv_source: bytes | str | Path) -> frozenset[tuple[int, int]]:
++    """Validate an uploaded dense schedule CSV via m4_dynamics.workload.read_schedule."""
++    if isinstance(csv_source, Path):
++        if not csv_source.is_file():
++            raise ValueError(f"Schedule file does not exist: {csv_source}")
++        return read_schedule(inst, csv_source)
++    if not isinstance(csv_source, (bytes, str)):
++        raise ValueError("csv_source must be bytes, str, or Path")
++    text = csv_source.decode("utf-8-sig") if isinstance(csv_source, bytes) else csv_source
++    with tempfile.TemporaryDirectory() as folder:
++        (tmp := Path(folder) / "uploaded.csv").write_text(text.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
++        return read_schedule(inst, tmp)
++
++@st.cache_data(show_spinner=False)
++def _cached_m2_solve(_inst, key: tuple, time_limit: int) -> frozenset[tuple[int, int]]:
++    cfg1 = ModelConfig(stage=1, fatigue_k=fit_fatigue_k(_inst) if _inst.baseline else ModelConfig.fatigue_k, time_limit=time_limit)
++    prob1, x1, h1 = build_model(_inst, cfg1)
++    if run_cbc(prob1, cfg1).status not in ("optimal", "feasible"):
++        raise ValueError("Bounded M2 stage-1 solve failed to find a feasible schedule")
++    cfg2 = replace(cfg1, stage=2, t_cap=round(float(pulp.value(h1.t))))
++    prob2, x2, _ = build_model(_inst, cfg2)
++    chosen = x2 if run_cbc(prob2, cfg2).status in ("optimal", "feasible") else x1
++    assigned = frozenset(p for p, v in chosen.items() if v.varValue and v.varValue > 0.5)
++    if check_schedule(_inst, assigned):
++        raise ValueError("Solved M2 schedule violates hard constraints")
++    return assigned
++
++def solve_bounded_m2(ctx: DatasetContext, *, time_limit: int | None = None) -> frozenset[tuple[int, int]]:
++    """Run a bounded two-stage CBC solve on toy or subset instances only."""
++    limit = ctx.config.time_limit if time_limit is None else time_limit
++    if type(limit) is not int or not 1 <= limit <= 120:
++        raise ValueError("time_limit must be an integer in [1, 120]")
++    if not ctx.is_live_solvable or ctx.mode == "full":
++        raise ValueError("Live CBC solving is restricted to toy and subset modes")
++    inst = ctx.instance
++    return _cached_m2_solve(inst, (inst.seed, tuple(inst.staff_ids), tuple(inst.session_names), tuple(sorted(inst.A)), tuple(inst.preferences)), limit)
++
++@st.cache_data(show_spinner=False)
++def _cached_m4_refine(_ctx: DatasetContext, key: tuple, base: frozenset[tuple[int, int]], limit: int) -> frozenset[tuple[int, int]]:
++    inst, k = _ctx.instance, _ctx.config.fatigue_k
++    bw = weekly_workload(inst, inst.baseline) if inst.baseline and not check_schedule(inst, inst.baseline) else None
++    fbw = weekly_workload(_ctx.full_instance, _ctx.full_instance.baseline)
++    ref_bw = bw if bw is not None else fbw
++    try:
++        params, _ = calibrate(ref_bw)
++    except ValueError:
++        params, _ = calibrate(fbw)
++    cfg = ModelConfig(stage=2, t_cap=compute_metrics(inst, base, k)["max_load"], fatigue_k=k, time_limit=limit)
++    prob, x, _ = build_model(inst, cfg)
++    fh = add_fatigue_soft_constraints(prob, x, inst, params, fit_threshold(simulate_history(ref_bw, params)))
++    prob.setObjective(prob.objective + inst.soft_weight_map["fatigue"] * fh.penalty)
++    cand = frozenset(p for p, v in x.items() if v.varValue and v.varValue > 0.5) if run_cbc(prob, cfg).status in ("optimal", "feasible") else base
++    return cand if not check_schedule(inst, cand) else base
++
++def build_weekly_rows(inst, assigned) -> tuple[dict[str, object], ...]:
++    """Build chronological assignment records annotated with 1-based week numbers."""
++    _, _, week_idx = week_layout(inst)
++    ordered = sorted(set(assigned), key=lambda p: (inst.intervals[p[1]][0], inst.session_names[p[1]], inst.staff_ids[p[0]]))
++    return tuple({"week": int(week_idx[j] + 1), "date": inst.day[j].isoformat(), "session_id": inst.session_names[j],
++                  "campus": inst.campus[j], "time": f"{inst.intervals[j][0]:%H:%M}-{inst.intervals[j][1]:%H:%M}",
++                  "invigilator_id": inst.staff_ids[i], "preference": inst.preferences[i]} for i, j in ordered)
++
++def filter_weekly_rows(rows, *, week: int | None = None, campus: str | None = None,
++                       session_id: str | None = None, invigilator_id: str | None = None) -> tuple[dict[str, object], ...]:
++    """Filter weekly assignment rows by week (1..4), campus (CS1/CS2), session, and invigilator."""
++    if week is not None and (type(week) is not int or not 1 <= week <= 52):
++        raise ValueError("week filter must be an integer in [1, 52]")
++    if campus is not None and campus not in ("CS1", "CS2"):
++        raise ValueError("campus filter must be 'CS1' or 'CS2'")
++    if (session_id is not None and not isinstance(session_id, str)) or (invigilator_id is not None and not isinstance(invigilator_id, str)):
++        raise ValueError("session_id and invigilator_id filters must be strings")
++    return tuple(r for r in rows if (week is None or r["week"] == week) and (campus is None or r["campus"] == campus)
++                 and (not session_id or r["session_id"] == session_id) and (not invigilator_id or r["invigilator_id"] == invigilator_id))
++
++def build_comparison_rows(inst, schedules: dict[str, frozenset[tuple[int, int]]], *, fatigue_k: int | None = None) -> tuple[dict[str, object], ...]:
++    """Compare candidate schedules against Baseline on feasibility, fairness, and soft penalties."""
++    k = (fit_fatigue_k(inst) if inst.baseline else ModelConfig.fatigue_k) if fatigue_k is None else fatigue_k
++    bm = compute_metrics(inst, schedules.get("baseline", frozenset(inst.baseline)), k)
++    rows = []
++    for name, assigned in schedules.items():
++        viol, m = check_schedule(inst, assigned), compute_metrics(inst, assigned, k)
++        beats = not viol and (m["max_load"] < bm["max_load"] or (m["max_load"] == bm["max_load"] and m["l1"] < bm["l1"] - 1e-9))
++        rows.append({"schedule": name, "feasible": not viol, "violations": len(viol), "max_load": int(m["max_load"]),
++                     "min_load": int(m["min_load"]), "spread": int(m["spread"]), "l1": round(float(m["l1"]), 4),
++                     "location": int(m["location"]), "fatigue": int(m["fatigue"]), "travel": int(m["travel"]), "beats_baseline": bool(beats)})
++    return tuple(rows)
++
++def _load_if_matching(inst, path: Path) -> frozenset[tuple[int, int]] | None:
++    try:
++        return read_schedule(inst, Path(path)) if Path(path).is_file() else None
++    except ValueError:
++        return None
++
++def evaluate_m2_schedules(ctx: DatasetContext, *, source: str = "m2", uploaded_csv: bytes | str | Path | None = None,
++                          time_limit: int | None = None, m2_path: Path = DEFAULT_M2_PATH, m4_path: Path = DEFAULT_M4_PATH) -> ScheduleSelection:
++    """Resolve Baseline, M2, M4, and active schedules with metric and feasibility checks."""
++    limit = ctx.config.time_limit if time_limit is None else time_limit
++    if source not in SCHEDULE_SOURCES or type(limit) is not int or not 1 <= limit <= 120:
++        raise ValueError("Invalid schedule source or time_limit outside [1, 120]")
++    inst, k, baseline = ctx.instance, ctx.config.fatigue_k, frozenset(ctx.instance.baseline)
++    key = (inst.seed, tuple(inst.staff_ids), tuple(inst.session_names), tuple(sorted(inst.A)), tuple(inst.preferences))
++    if ctx.mode == "full":
++        disk_m2, disk_m4 = _load_if_matching(inst, m2_path), _load_if_matching(inst, m4_path)
++        m2_sched = baseline if disk_m2 is None else disk_m2
++        m4_sched = disk_m4 if disk_m4 is not None else (_cached_m4_refine(ctx, key, m2_sched, min(limit, 15)) if disk_m2 is not None else baseline)
++    else:
++        m2_sched = solve_bounded_m2(ctx, time_limit=limit)
++        m4_sched = _cached_m4_refine(ctx, key, m2_sched, min(limit, 15))
++    if uploaded_csv is not None or source == "uploaded":
++        if uploaded_csv is None:
++            raise ValueError("uploaded_csv is required when source is 'uploaded'")
++        active, active_name = parse_uploaded_schedule(inst, uploaded_csv), "uploaded"
++    elif source == "live":
++        active, active_name = solve_bounded_m2(ctx, time_limit=limit), "live"
++    else:
++        active, active_name = {"m2": m2_sched, "m4": m4_sched, "baseline": baseline}[source], source
++    violations, metrics, base_metrics = tuple(check_schedule(inst, active)), compute_metrics(inst, active, k), compute_metrics(inst, baseline, k)
++    candidates = {"baseline": baseline, "m2": m2_sched, "m4": m4_sched, **({"uploaded": active} if active_name == "uploaded" else {})}
++    return ScheduleSelection(assignment=active, source_name=active_name, feasible=not violations, violations=violations,
++                             metrics=metrics, baseline_assignment=baseline, baseline_metrics=base_metrics, m2_assignment=m2_sched,
++                             m4_assignment=m4_sched, weekly_rows=build_weekly_rows(inst, active), comparison_rows=build_comparison_rows(inst, candidates, fatigue_k=k))
++
++def render_m2_section(ctx: DatasetContext, *, source: str = "m2", uploaded_csv: bytes | str | Path | None = None,
++                      time_limit: int | None = None) -> ScheduleSelection:
++    """Render Module 2 metrics, Baseline comparison, and filterable weekly assignments."""
++    st.subheader("M2. 0/1 ILP Schedule, Validation & Baseline Comparison")
++    try:
++        sel = evaluate_m2_schedules(ctx, source=source, uploaded_csv=uploaded_csv, time_limit=time_limit)
++    except ValueError as exc:
++        st.error(f"Schedule validation error: {exc}")
++        sel = evaluate_m2_schedules(ctx, source="m2", time_limit=time_limit)
++    m1, m2, m3, m4 = st.columns(4)
++    m1.metric("Active Schedule", sel.source_name.upper(), "Feasible" if sel.feasible else f"{len(sel.violations)} violations")
++    m2.metric("Max Load", int(sel.metrics["max_load"]), int(sel.metrics["max_load"] - sel.baseline_metrics["max_load"]), delta_color="inverse")
++    m3.metric("L1 Deviation", f"{sel.metrics['l1']:.2f}", f"{sel.metrics['l1'] - sel.baseline_metrics['l1']:.2f}", delta_color="inverse")
++    m4.metric("Soft (LOC/FAT/TRV)", f"{sel.metrics['location']}/{sel.metrics['fatigue']}/{sel.metrics['travel']}")
++    (st.success if sel.feasible else st.error)(f"H1–H3 verified: 0 violations ({len(sel.weekly_rows)} assignments)." if sel.feasible else "; ".join(sel.violations[:5]))
++    comp_df = pd.DataFrame(list(sel.comparison_rows))
++    c_tbl, c_plot = st.columns([3, 2])
++    c_tbl.dataframe(comp_df, use_container_width=True, hide_index=True)
++    c_plot.bar_chart(comp_df.set_index("schedule")[["max_load", "spread", "l1"]])
++    f1, f2, f3, f4 = st.columns(4)
++    w_val, c_val = f1.selectbox("Week", ["All", *range(1, max(4, len(week_layout(ctx.instance)[0])) + 1)], key="m2_week"), f2.selectbox("Campus", ["All", "CS1", "CS2"], key="m2_campus")
++    s_val, i_val = f3.selectbox("Session", ["All", *ctx.instance.session_names], key="m2_session"), f4.selectbox("Invigilator", ["All", *ctx.instance.staff_ids], key="m2_invigilator")
++    filtered = filter_weekly_rows(sel.weekly_rows, week=None if w_val == "All" else int(w_val), campus=None if c_val == "All" else str(c_val),
++                                  session_id=None if s_val == "All" else str(s_val), invigilator_id=None if i_val == "All" else str(i_val))
++    st.dataframe(pd.DataFrame(list(filtered), columns=WEEKLY_COLUMNS), use_container_width=True, hide_index=True)
++    return sel
+diff --git a/app/tests/test_m2_section.py b/app/tests/test_m2_section.py
+new file mode 100644
+index 0000000..f5ade8e
+--- /dev/null
++++ b/app/tests/test_m2_section.py
+@@ -0,0 +1,64 @@
++"""Unit tests for Module 2 schedule solving, validation, comparison, and weekly filtering."""
++from __future__ import annotations
++import pytest
++from streamlit.testing.v1 import AppTest
++from app.data_context import load_dataset_context
++from app.m2_section import evaluate_m2_schedules, filter_weekly_rows, parse_uploaded_schedule, solve_bounded_m2
++from m2_ilp.validate import check_schedule
++
++def _m2_subset_page():
++    from app.data_context import load_dataset_context
++    from app.m2_section import render_m2_section
++    render_m2_section(load_dataset_context("subset"), source="live", time_limit=10)
++
++def _dense_csv(inst, assigned) -> str:
++    return "invigilator_id,session_id,assigned\n" + "\n".join(f"{s},{c},{int((i, j) in assigned)}" for i, s in enumerate(inst.staff_ids) for j, c in enumerate(inst.session_names)) + "\n"
++
++def test_live_bounded_solve_on_toy_and_subset_and_full_guard():
++    toy_ctx = load_dataset_context("toy")
++    toy_assigned = solve_bounded_m2(toy_ctx, time_limit=5)
++    assert check_schedule(toy_ctx.instance, toy_assigned) == [] and len(toy_assigned) == sum(toy_ctx.instance.demand) and (0, 1) in toy_assigned
++    sub_sel = evaluate_m2_schedules(load_dataset_context("subset"), source="live", time_limit=10)
++    assert sub_sel.feasible and sub_sel.metrics["max_load"] < sub_sel.baseline_metrics["max_load"] and sub_sel.metrics["l1"] < sub_sel.baseline_metrics["l1"]
++    with pytest.raises(ValueError, match="toy and subset"):
++        solve_bounded_m2(load_dataset_context("full"), time_limit=10)
++    for bad_limit in (0, -3, True, 999):
++        with pytest.raises(ValueError, match="time_limit"):
++            solve_bounded_m2(toy_ctx, time_limit=bad_limit)
++
++def test_full_comparison_superiority_and_clean_clone_fallbacks(tmp_path):
++    full_ctx = load_dataset_context("full")
++    sel = evaluate_m2_schedules(full_ctx, m4_path=tmp_path / "absent_m4.csv")
++    assert sel.feasible and sel.source_name == "m2" and sel.metrics["max_load"] < sel.baseline_metrics["max_load"] and sel.metrics["l1"] < sel.baseline_metrics["l1"]
++    by_name = {row["schedule"]: row for row in sel.comparison_rows}
++    assert not by_name["baseline"]["beats_baseline"] and by_name["m2"]["beats_baseline"] and by_name["m4"]["beats_baseline"]
++    clean = evaluate_m2_schedules(full_ctx, m2_path=tmp_path / "no_m2.csv", m4_path=tmp_path / "no_m4.csv")
++    assert clean.feasible and clean.m2_assignment == clean.baseline_assignment
++
++def test_uploaded_csv_validation_and_malformed_rejection():
++    toy_ctx = load_dataset_context("toy")
++    valid = solve_bounded_m2(toy_ctx, time_limit=5)
++    csv_text = _dense_csv(toy_ctx.instance, valid)
++    assert parse_uploaded_schedule(toy_ctx.instance, csv_text.encode("utf-8")) == valid
++    sel = evaluate_m2_schedules(toy_ctx, source="uploaded", uploaded_csv=csv_text)
++    assert sel.feasible and sel.source_name == "uploaded" and sel.assignment == valid
++    for bad_csv in ("staff,session,assigned\nCB1,Morning,1\n", csv_text.replace("CB1,Morning,0", "CB999,Morning,0"),
++                    csv_text.replace("CB1,Afternoon,1", "CB1,Afternoon,2"), "\n".join(csv_text.splitlines()[:-1]) + "\n", _dense_csv(toy_ctx.instance, frozenset())):
++        with pytest.raises(ValueError):
++            parse_uploaded_schedule(toy_ctx.instance, bad_csv)
++    with pytest.raises(ValueError):
++        evaluate_m2_schedules(toy_ctx, source="uploaded", uploaded_csv=None)
++
++def test_weekly_assignment_table_filters_and_render():
++    full_ctx = load_dataset_context("full")
++    rows = evaluate_m2_schedules(full_ctx).weekly_rows
++    assert len(rows) == sum(full_ctx.instance.demand) and {r["week"] for r in rows} == {1, 2, 3, 4}
++    assert sum(len(filter_weekly_rows(rows, week=w)) for w in range(1, 5)) == len(rows) and sum(len(filter_weekly_rows(rows, campus=c)) for c in ("CS1", "CS2")) == len(rows)
++    s = rows[0]
++    exact = filter_weekly_rows(rows, week=int(s["week"]), campus=str(s["campus"]), session_id=str(s["session_id"]), invigilator_id=str(s["invigilator_id"]))
++    assert len(exact) == 1 and exact[0] == s
++    for kwargs in ({"week": 0}, {"week": True}, {"campus": "CS3"}):
++        with pytest.raises(ValueError):
++            filter_weekly_rows(rows, **kwargs)
++    at = AppTest.from_function(_m2_subset_page).run()
++    assert not at.exception and at.metric[0].value == "LIVE" and len(at.dataframe) == 2

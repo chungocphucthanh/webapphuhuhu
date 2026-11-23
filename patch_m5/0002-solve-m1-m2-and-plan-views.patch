@@ -1,0 +1,612 @@
+diff --git a/app/presentation.css b/app/presentation.css
+index 51fc322..4b51636 100644
+--- a/app/presentation.css
++++ b/app/presentation.css
+@@ -128,3 +128,61 @@
+ [data-testid="stExpander"] summary { min-height: 2.75rem; }
+ [data-testid="stDataFrame"] { overflow: hidden; }
+ [data-testid="stDataFrame"]:focus-within { outline: 2px solid var(--iap-blue); outline-offset: 2px; }
++[data-testid="stMarkdownContainer"]:has(> table .katex) {
++  overflow-x: auto;
++  max-width: 100%;
++}
++[data-testid="stMarkdownContainer"] > table:has(.katex) {
++  min-width: 46rem;
++  width: 100%;
++  margin-bottom: 0;
++  font-variant-numeric: tabular-nums;
++}
++[data-testid="stMarkdownContainer"] > table:has(.katex) th {
++  background: color-mix(in srgb, var(--iap-blue) 12%, transparent);
++}
++.iap-session, .iap-rules li {
++  color: var(--iap-ink);
++  background: var(--iap-surface);
++  border: 1px solid var(--iap-line);
++  border-radius: var(--iap-radius-card);
++  padding: 1rem 1.2rem;
++}
++.iap-session { background: #edf4ff; }
++.iap-session h3 { color: var(--iap-ink); padding-top: 0; }
++.iap-session p { margin: 0 0 .55rem; }
++.iap-session strong { font-size: 1.35rem; color: var(--iap-indigo); }
++.iap-people, .iap-rules { margin: 0 !important; padding: 0 !important; list-style: none; }
++.iap-people { display: flex; flex-wrap: wrap; gap: .4rem; }
++.iap-people li { margin: 0; padding: .22rem .7rem; background: #fff; border-radius: 99px; overflow-wrap: anywhere; }
++.iap-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
++.iap-rules li { display: grid; align-content: start; gap: .35rem; margin: 0; line-height: 1.4; }
++.iap-rules li:nth-child(1) { background: var(--iap-lavender); }
++.iap-rules li:nth-child(2) { background: var(--iap-mint); }
++.iap-rules li:nth-child(3) { background: var(--iap-peach); }
++.iap-rules b { font-size: 1.2rem; }
++.iap-rules strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
++.iap-conflict {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
++  gap: .75rem;
++  list-style: none;
++  margin: 0 !important;
++  padding: 0 !important;
++}
++.iap-conflict li {
++  display: grid;
++  align-content: start;
++  gap: .35rem;
++  margin: 0;
++  padding: 1rem 1.2rem;
++  background: var(--iap-peach);
++  color: var(--iap-ink);
++  border: 1px solid var(--iap-line);
++  border-radius: var(--iap-radius-card);
++  overflow-wrap: anywhere;
++}
++.iap-conflict strong { color: var(--iap-ochre); }
++.iap-conflict b { font-size: 1.2rem; }
++[data-testid="stTabs"] [role="tab"] { font-size: 1rem; min-height: 2.75rem; padding-inline: .7rem; }
++[data-testid="stTabs"] [role="tab"][aria-selected="true"] { font-weight: 700; }
+diff --git a/app/presentation_views.py b/app/presentation_views.py
+index 3ef9e2c..842579c 100644
+--- a/app/presentation_views.py
++++ b/app/presentation_views.py
+@@ -1,8 +1,17 @@
+ """Vietnamese presentation views over the existing Module 5 adapters."""
+ 
++import csv
++import io
++import re
++from html import escape
++from urllib.parse import unquote
++
++import pandas as pd
+ import streamlit as st
+ 
+-from app.presentation import hero
++from app.data_views import staff_workload_rows, week_options, weekly_assignment_rows
++from app.presentation import hero, memo, named_rows, schedule_label, spreadsheet_text, table
++from app.solver_views import compare_schedule_metrics
+ 
+ PLAN_COLUMNS = {
+     "week": "Tuần", "date": "Ngày", "time": "Giờ", "class": "Buổi", "session_id": "Mã ca",
+@@ -34,3 +43,195 @@ def overview(inst) -> None:
+         '<span>Đầu ra: quỹ đạo, phương sai và điểm cân bằng.</span></li></ol>',
+         unsafe_allow_html=True,
+     )
++
++
++LOGIC_BRIDGE = r"""
++| Quy tắc | Logic vị từ / mệnh đề | Dạng trước khi mã hóa CNF | Ràng buộc tuyến tính 0/1 |
++| :--- | :--- | :--- | :--- |
++| **H1 · Khả dụng** | $\forall i\in I,\ \forall j\in J:\ \operatorname{Busy}(i,j)\Rightarrow\neg\operatorname{Assign}(i,j)$ | $\neg\operatorname{Assign}(i,j)$ | $x_{ij}=0$ |
++| **H2 · Không trùng giờ** | $\operatorname{Overlap}(j,k)\Rightarrow\neg\bigl(\operatorname{Assign}(i,j)\land\operatorname{Assign}(i,k)\bigr)$ | $\neg\operatorname{Assign}(i,j)\lor\neg\operatorname{Assign}(i,k)$ | $x_{ij}+x_{ik}\le 1$ |
++| **H3 · Đủ người** | $\forall j\in J:\ \#\{i\in I:\operatorname{Assign}(i,j)\}=d_j$ | $\operatorname{Exactly}_{d_j}\bigl(\{\operatorname{Assign}(i,j):i\in I\}\bigr)$ | $\displaystyle\sum_{i\in I}x_{ij}=d_j$ |
++| **Mệnh đề tổng quát** | Tuyển của các literal | $\bigl(\bigvee_{p\in P}v_p\bigr)\lor\bigl(\bigvee_{n\in N}\neg v_n\bigr)$ | $\sum_{p\in P}x_p-\sum_{n\in N}x_n\ge 1-\lvert N\rvert$ |
++| **Tuyển** | $a\lor b$ | $a\lor b$ | $x_a+x_b\ge 1$ |
++| **Kéo theo** | $a\Rightarrow b$ | $\neg a\lor b$ | $x_b-x_a\ge 0$ |
++| **Không cùng đúng** | $\neg(a\land b)$ | $\neg a\lor\neg b$ | $x_a+x_b\le 1$ |
++| **Đúng một** | $\#\{s\in S:s\ \text{đúng}\}=1$ | $\operatorname{Exactly}_1(S)$ | $\displaystyle\sum_{s\in S}x_s=1$ |
++| **Tối đa $k$** | $\#\{s\in S:s\ \text{đúng}\}\le k$ | $\operatorname{AtMost}_k(S)$ | $\displaystyle\sum_{s\in S}x_s\le k$ |
++| **Đúng $k$** | $\#\{s\in S:s\ \text{đúng}\}=k$ | $\operatorname{Exactly}_k(S)$ | $\displaystyle\sum_{s\in S}x_s=k$ |
++| **Mệnh đề rỗng** | $\bot$ | $\bigvee\varnothing=\bot$ | $0\ge 1$ (vô nghiệm) |
++"""
++
++
++def logic_panel(result: dict, *, compact: bool = False) -> None:
++    if result["satisfiable"]:
++        st.success("SAT — Có lịch thỏa H1–H3. Chưa xét R1–R3 hoặc độ tối ưu.")
++    else:
++        st.error("UNSAT — Không thể thỏa đồng thời các ràng buộc dưới đây.")
++    if compact:
++        if not result["satisfiable"]:
++            conflict_panel(result["unsat_core"])
++        return
++
++    outcome, bridge = st.tabs(("Kết quả SAT / UNSAT", "Đối chiếu Logic với 0/1"))
++    with outcome:
++        if result["satisfiable"]:
++            witness = result["model"]
++            total_sessions, total_assignments, inspect = st.columns((1, 1, 2))
++            total_sessions.metric("Ca trong lịch khả thi", len(witness))
++            total_assignments.metric("Lượt phân công", sum(map(len, witness.values())))
++            session = inspect.selectbox("Xem một ca", tuple(witness), key="sat_witness_session")
++            if session is not None:
++                people = witness[session]
++                roster = "".join(f"<li>{escape(person)}</li>" for person in people)
++                st.markdown(
++                    f'<section class="iap-session"><h3>Ca {escape(session)}</h3>'
++                    f'<p><strong>{len(people)}</strong> giám thị trong lịch chứng minh</p>'
++                    f'<ul class="iap-people" role="list">{roster}</ul></section>',
++                    unsafe_allow_html=True,
++                )
++        else:
++            conflict_panel(result["unsat_core"])
++    with bridge:
++        a, b, c = st.columns(3)
++        a.metric("Mệnh đề CNF", result["n_clauses"])
++        b.metric("Biến phân công", result["n_assign_vars"], f"{result['n_aux_vars']} biến phụ", delta_color="off")
++        c.metric("Ràng buộc tuyến tính 0/1", result["linear_rows"])
++        st.markdown(r"$I$: tập giám thị; $J$: tập ca thi; $d_j$: số người cần cho ca $j$. "
++                    r"$x_{ij}\in\{0,1\}$ bằng $1$ khi giám thị $i$ được xếp ca $j$. "
++                    r"$P,N$: tập chỉ số literal dương và âm; $S$: tập mệnh đề cần đếm.")
++        st.markdown(LOGIC_BRIDGE)
++
++
++def conflict_panel(core: list[str]) -> None:
++    st.subheader("Mâu thuẫn nằm ở đâu?")
++    st.write("Các điều kiện bên dưới tạo thành một lõi mâu thuẫn: bỏ bất kỳ một điều kiện nào, "
++             "phần còn lại của lõi có thể thỏa được.")
++    busy_by_session: dict[str, list[str]] = {}
++    cards: list[tuple[str, str, str]] = []
++    for member in core:
++        if match := re.fullmatch(r"capacity\((.+)\)=(\d+)", member):
++            session, demand = map(unquote, match.groups())
++            cards.append(("H3 · Đủ người", f"Ca {session}", f"Ca này cần {demand} giám thị."))
++        elif match := re.fullmatch(r"Busy\(([^,]+),([^,]+)\)", member):
++            person, session = map(unquote, match.groups())
++            busy_by_session.setdefault(session, []).append(person)
++        elif match := re.fullmatch(r"NoDoubleBooking\(([^,]+),([^,]+),([^,]+)\)", member):
++            person, first, second = map(unquote, match.groups())
++            cards.append(("H2 · Không trùng giờ", f"Giám thị {person}",
++                          f"Không thể coi cả ca {first} và ca {second} vì hai ca trùng giờ."))
++        else:
++            cards.append(("Điều kiện trong lõi", unquote(member), ""))
++    cards.extend(("H1 · Khả dụng", f"Ca {session}", f"Giám thị không thể coi ca này: {', '.join(people)}.")
++                 for session, people in busy_by_session.items())
++    content = "".join(
++        f'<li><strong>{escape(rule)}</strong><b>{escape(title)}</b><span>{escape(detail)}</span></li>'
++        for rule, title, detail in cards
++    )
++    st.markdown(f'<ul class="iap-conflict" role="list" aria-label="Lõi mâu thuẫn">{content}</ul>',
++                unsafe_allow_html=True)
++
++
++def solve_status(result: dict) -> None:
++    if result["assigned"]:
++        if result["stage_statuses"].get(1) != "optimal":
++            st.info("CBC chưa chứng minh tải đỉnh nhỏ nhất; lịch đang xem là lịch khả thi.")
++        elif result["status"] != "optimal":
++            st.info("CBC đã xác nhận tải đỉnh nhỏ nhất, nhưng chưa chứng minh tối ưu ở giai đoạn 2.")
++        if result["include_m4_soft"] and not result["calibrated_m4_from_data"]:
++            with st.expander("Thông số CBC"):
++                st.write("Ngưỡng mềm dùng thông số tham chiếu của bộ dữ liệu khoa.")
++    elif result["status"] == "infeasible":
++        st.warning("Mô hình đã chọn vô nghiệm.")
++    else:
++        st.warning("Chưa tìm được lịch. Đây không phải kết luận vô nghiệm.")
++    if result["diagnosis"]:
++        st.write("Số người còn thiếu theo từng ca khi nới H3 (không xét DFA).")
++        table(result["diagnosis"], {"session": "Mã ca", "demand": "Nhu cầu", "missing": "Còn thiếu"})
++
++
++def plan_csv(rows: list[dict]) -> bytes:
++    buffer = io.StringIO()
++    writer = csv.writer(buffer)
++    writer.writerow(PLAN_COLUMNS)
++    for row in rows:
++        writer.writerow([spreadsheet_text(row[col]) for col in PLAN_COLUMNS])
++    return buffer.getvalue().encode("utf-8-sig")
++
++
++def plan_panel(inst, schedules: dict, active: str, *, compact: bool = False) -> None:
++    comparison = memo("comparison", (inst, schedules), lambda: compare_schedule_metrics(inst, schedules))
++    result = next(row for row in comparison if row["schedule"] == active)
++    peak, balance, hard = st.columns(3)
++    baseline = next((row["max_load"] for row in comparison if row["schedule"] == "Baseline"), None)
++    delta = None if baseline is None or active == "Baseline" else result["max_load"] - baseline
++    peak.metric("Tải đỉnh · ca/người", result["max_load"], delta=delta, delta_color="inverse",
++                help="So với lịch gốc khi có. Tính trên toàn bộ lịch, không chỉ các ca đang lọc.")
++    balance.metric("Độ lệch tải L1", f"{result['l1']:g}")
++    hard.metric("Vi phạm H1–H3", result["hard_violations"])
++    if compact:
++        weekly_plan(inst, schedules[active], inspect=False)
++        return
++    plan_tab, comparison_tab = st.tabs(("Lịch theo ca", "So sánh tải"))
++    with plan_tab:
++        weekly_plan(inst, schedules[active], inspect=True)
++    with comparison_tab:
++        workload_comparison(inst, schedules[active], comparison)
++
++
++def weekly_plan(inst, pairs, *, inspect: bool) -> None:
++    weeks = {None: "Tất cả các tuần", **{
++        w["week"]: f"Tuần {w['week']} · {w['start']} đến {w['end']} ({w['days']} ngày)" for w in week_options(inst)
++    }}
++    controls = st.columns((2, 1, 3)) if inspect else st.columns(2)
++    left, right = controls[:2]
++    week = left.selectbox("Tuần trong lịch", list(weeks), format_func=weeks.__getitem__, key="week_filter")
++    campus = right.selectbox("Cơ sở", ["All", *sorted(set(inst.campus))],
++                             format_func=lambda value: "Tất cả cơ sở" if value == "All" else value, key="campus_filter")
++    rows = weekly_assignment_rows(inst, pairs, week=week, campus=campus)
++    if not rows:
++        st.info("Không có ca nào trong bộ lọc này. Đổi tuần hoặc cơ sở để xem lịch.")
++        return
++    if inspect:
++        by_session = {row["session_id"]: row for row in rows}
++        widget_key = "plan_session"
++        preferred = st.session_state.get("iap_plan_session")
++        st.session_state[widget_key] = preferred if preferred in by_session else next(iter(by_session))
++        selected = controls[2].selectbox(
++            "Xem một ca", list(by_session), key=widget_key,
++            format_func=lambda sid: f"{by_session[sid]['date']} · {by_session[sid]['time']} · {sid}",
++            on_change=lambda: st.session_state.update(iap_plan_session=st.session_state[widget_key]),
++        )
++        st.session_state["iap_plan_session"] = selected
++        row = by_session[selected]
++        j = inst.session_names.index(selected)
++        people = [inst.staff_ids[i] for i in sorted(i for i, session in pairs if session == j)]
++        chips = "".join(f"<li>{escape(person)}</li>" for person in people)
++        st.markdown(
++            '<div class="iap-session">'
++            f'<h3>{escape(row["campus"])} · {escape(row["date"])} · {escape(row["time"])}</h3>'
++            f'<p><strong>{row["assigned"]}/{row["demand"]}</strong> giám thị đã xếp</p>'
++            f'<ul class="iap-people" role="list" aria-label="Giám thị được phân công">{chips}</ul></div>',
++            unsafe_allow_html=True,
++        )
++    st.subheader(f"Danh sách {len(rows)} ca")
++    table(rows, PLAN_COLUMNS)
++    st.download_button("Tải bảng phân công CSV", data=plan_csv(rows), file_name="phan-cong.csv", mime="text/csv")
++
++
++def workload_comparison(inst, pairs, comparison: list[dict]) -> None:
++    st.header("Mỗi giám thị được xếp bao nhiêu ca?")
++    staff_rows = staff_workload_rows(inst, pairs)
++    distribution = (pd.Series([row["total_load"] for row in staff_rows]).value_counts().sort_index()
++                    .rename_axis("Số ca").rename("Số giám thị").reset_index())
++    st.bar_chart(distribution, x="Số ca", y="Số giám thị")
++    with st.expander("Số liệu phân bố tải"):
++        st.dataframe(distribution, hide_index=True, use_container_width=True)
++    with st.expander("Đối chiếu các lịch và phạt mềm"):
++        table(named_rows(comparison), {
++            "schedule": "Lịch", "max_load": "Tải đỉnh", "min_load": "Tải thấp nhất", "l1": "Độ lệch L1",
++            "location": "Phạt cơ sở", "fatigue": "Phạt số ca/ngày", "travel": "Phạt di chuyển",
++            "hard_violations": "Vi phạm H1–H3", "stage2_objective": "Mục tiêu M2 (không gồm ngưỡng M4)",
++        })
++    with st.expander("Tải của từng giám thị"):
++        table(staff_rows, {"staff_id": "Giám thị", "total_load": "Tổng số ca", "cs1_load": "CS1", "cs2_load": "CS2",
++                           **{f"W{w['week']}": f"Tuần {w['week']}" for w in week_options(inst)}})
+diff --git a/app/solver_views.py b/app/solver_views.py
+new file mode 100644
+index 0000000..63e1a94
+--- /dev/null
++++ b/app/solver_views.py
+@@ -0,0 +1,248 @@
++"""M1 SAT feasibility check and bounded-time M2/M3/M4 solver services (M5, Hung)."""
++
++from __future__ import annotations
++
++from dataclasses import replace
++import math
++import time
++
++import pulp
++
++from m1_logic.cnf import encode_invigilator_assignment
++from m1_logic.linear_bridge import CONVERSION_ROWS, encode_invigilator_assignment_linear
++from m1_logic.sat_check import solve_instance
++from m2_ilp.config import ModelConfig
++from m2_ilp.instance import Instance
++from m2_ilp.metrics import compute_metrics
++from m2_ilp.model import build_model
++from m2_ilp.soft import fit_fatigue_k
++from m2_ilp.solve import Solution, _value, run_cbc, solve
++from m2_ilp.tuning import diagnose
++from m2_ilp.validate import check_schedule
++from m3_automata.regular_to_ilp import add_rules_to_m2, combined_dfa, load_rules, solve_with_rules
++from m4_dynamics.fatigue import (
++    FatigueParameters,
++    calibrate,
++    fit_threshold,
++    simulate_history,
++)
++from m4_dynamics.planning import add_fatigue_soft_constraints
++from m4_dynamics.workload import weekly_workload
++
++# Reference M4 calibration on the 27-day Faculty dataset, used only when a short
++# slice or toy instance has fewer than two weekly blocks for lag-one OLS.
++DEFAULT_M4_PARAMS = FatigueParameters(a=0.27063439282332274, b=0.7293656071766772, r=0.0)
++DEFAULT_M4_THRESHOLD = 5.660327617142248
++
++
++def run_m1_check(m1_data: dict) -> dict:
++    """Encode CNF + linear bridge and run the Minisat22 SAT/UNSAT-core check."""
++    t0 = time.perf_counter()
++    staff_count = len(m1_data["staff_ids"])
++    demands = m1_data["shift_demands"]
++    busy = m1_data["busy"]
++    overlaps = m1_data["overlaps"]
++
++    cnf = encode_invigilator_assignment(staff_count, demands, busy, overlaps)
++    sat_res = solve_instance(m1_data)
++    linear = encode_invigilator_assignment_linear(staff_count, demands, busy, overlaps)
++    runtime_ms = (time.perf_counter() - t0) * 1000.0
++
++    assign_vars = staff_count * len(demands)
++    baseline_map = {linear.var(i, j): 1 for i, j in m1_data.get("baseline", ())}
++    return {
++        "satisfiable": sat_res["satisfiable"],
++        "model": sat_res["model"],
++        "unsat_core": sat_res["unsat_core"],
++        "n_staff": staff_count,
++        "n_sessions": len(demands),
++        "n_assign_vars": assign_vars,
++        "n_cnf_vars": cnf.nv,
++        "n_aux_vars": max(0, cnf.nv - assign_vars),
++        "n_clauses": len(cnf.clauses),
++        "linear_summary": linear.summary(),
++        "linear_rows": len(linear.constraints),
++        "baseline_linear_violations": (
++            len(linear.violated(baseline_map)) if m1_data.get("baseline") else 0
++        ),
++        "bridge_rows": [
++            {"rule": r, "fol": fol, "clause": cl, "dimacs": dm, "linear": ln}
++            for r, fol, cl, dm, ln in CONVERSION_ROWS
++        ],
++        "runtime_ms": round(runtime_ms, 2),
++    }
++
++
++def _m4_params_for_instance(inst: Instance) -> tuple[FatigueParameters, float, bool]:
++    """Calibrate (a, b, r) and H from inst.baseline when identifiable, else use defaults."""
++    if inst.baseline:
++        try:
++            wl = weekly_workload(inst, inst.baseline)
++            params, _ = calibrate(wl)
++            hist = simulate_history(wl, params)
++            return params, fit_threshold(hist), True
++        except ValueError:
++            pass
++    return DEFAULT_M4_PARAMS, DEFAULT_M4_THRESHOLD, False
++
++
++def _solve_with_m4_soft(
++    inst: Instance,
++    config: ModelConfig,
++    *,
++    enforce_m3: bool,
++) -> tuple[Solution, bool]:
++    """Two-stage solve adding M4's soft fatigue threshold (and optional M3 DFA flow)."""
++    dfa = combined_dfa(load_rules())[0] if enforce_m3 else None
++    prob1, x1, h1 = build_model(inst, replace(config, stage=1, t_cap=None))
++    if dfa is not None:
++        add_rules_to_m2(prob1, x1, inst, dfa)
++    stage1 = run_cbc(prob1, config)
++    if stage1.status not in ("optimal", "feasible"):
++        return Solution(stage1.status, frozenset(), None, {}, {1: stage1}, diagnose(inst, config)), False
++
++    t_star = round(pulp.value(h1.t))
++    if not math.isclose(pulp.value(h1.t), t_star, abs_tol=1e-6):
++        raise RuntimeError(f"Stage 1 returned fractional max load {pulp.value(h1.t)}")
++
++    params, threshold, calibrated_live = _m4_params_for_instance(inst)
++    prob2, x2, h2 = build_model(inst, replace(config, stage=2, t_cap=t_star))
++    if dfa is not None:
++        add_rules_to_m2(prob2, x2, inst, dfa)
++    fh = add_fatigue_soft_constraints(prob2, x2, inst, params, threshold)
++    prob2.setObjective(prob2.objective + config.lambdas(inst)[1] * fh.penalty)
++    stage2 = run_cbc(prob2, config)
++
++    if stage2.status in ("optimal", "feasible"):
++        x, handles, status, kept = x2, h2, stage2.status, stage2
++    else:
++        x, handles, status, kept = x1, h1, "feasible", stage1
++    assigned = frozenset(p for p, var in x.items() if (var.varValue or 0.0) > 0.5)
++    terms = handles.soft_terms or {}
++    obj = {
++        "max_load": max((_value(w) for w in handles.w.values()), default=0.0),
++        "l1": _value(handles.l1),
++        "location": _value(terms.get("location")),
++        "fatigue": _value(terms.get("fatigue")),
++        "travel": _value(terms.get("travel")),
++        "m4_excess": _value(fh.penalty) if x is x2 else 0.0,
++        "total": kept.objective,
++    }
++    return Solution(status, assigned, t_star, obj, {1: stage1, 2: stage2}, None), calibrated_live
++
++
++def solve_schedule_in_app(
++    inst: Instance,
++    *,
++    enforce_m3: bool = False,
++    include_m4_soft: bool = False,
++    time_limit: int = 15,
++    fatigue_k: int | None = None,
++    weight_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
++) -> dict:
++    """Run bounded-time CBC solve for M2, M2+M3 or M2(+M3)+M4 and validate H1-H3."""
++    t0 = time.perf_counter()
++    k = fit_fatigue_k(inst) if fatigue_k is None else fatigue_k
++    config = ModelConfig(fatigue_k=k, time_limit=time_limit, weight_scale=weight_scale)
++    calibrated_live = True
++
++    if include_m4_soft:
++        solution, calibrated_live = _solve_with_m4_soft(inst, config, enforce_m3=enforce_m3)
++    elif enforce_m3:
++        dfa, _ = combined_dfa(load_rules())
++        solution, _, _ = solve_with_rules(inst, config, dfa)
++        if not solution.assigned and solution.diagnosis is None:
++            solution = replace(solution, diagnosis=diagnose(inst, config))
++    else:
++        solution = solve(inst, config)
++
++    runtime_s = time.perf_counter() - t0
++    if not solution.assigned:
++        return {
++            "status": solution.status,
++            "stage_statuses": {stage: result.status for stage, result in solution.stages.items()},
++            "assigned": frozenset(),
++            "t_star": None,
++            "fatigue_k": k,
++            "metrics": None,
++            "baseline_metrics": None,
++            "beats_baseline": False,
++            "hard_violations": [],
++            "diagnosis": solution.diagnosis or [],
++            "runtime_s": round(runtime_s, 3),
++            "enforce_m3": enforce_m3,
++            "include_m4_soft": include_m4_soft,
++            "calibrated_m4_from_data": calibrated_live,
++        }
++
++    hard_violations = check_schedule(inst, solution.assigned)
++    if hard_violations:
++        raise RuntimeError("Solver produced hard-rule violations:\n" + "\n".join(hard_violations[:10]))
++
++    metrics = compute_metrics(inst, solution.assigned, k)
++    baseline_valid = (
++        bool(inst.baseline)
++        and len(inst.baseline) == sum(inst.demand)
++        and not check_schedule(inst, inst.baseline)
++    )
++    baseline_metrics = compute_metrics(inst, inst.baseline, k) if baseline_valid else None
++    beats = bool(baseline_metrics and metrics["max_load"] < baseline_metrics["max_load"])
++    return {
++        "status": solution.status,
++        "stage_statuses": {stage: result.status for stage, result in solution.stages.items()},
++        "assigned": solution.assigned,
++        "t_star": solution.t_star,
++        "fatigue_k": k,
++        "metrics": metrics,
++        "baseline_metrics": baseline_metrics,
++        "beats_baseline": beats,
++        "hard_violations": hard_violations,
++        "diagnosis": [],
++        "runtime_s": round(runtime_s, 3),
++        "enforce_m3": enforce_m3,
++        "include_m4_soft": include_m4_soft,
++        "calibrated_m4_from_data": calibrated_live,
++    }
++
++
++def compare_schedule_metrics(
++    inst: Instance,
++    schedules: dict[str, object],
++    *,
++    fatigue_k: int | None = None,
++) -> list[dict]:
++    """Build a side-by-side M2 fairness and soft-penalty table across schedules."""
++    k = fit_fatigue_k(inst) if fatigue_k is None else fatigue_k
++    lambdas = ModelConfig(fatigue_k=k).lambdas(inst)
++    base_max = (
++        compute_metrics(inst, inst.baseline, k)["max_load"]
++        if inst.baseline
++        and len(inst.baseline) == sum(inst.demand)
++        and not check_schedule(inst, inst.baseline)
++        else None
++    )
++    rows = []
++    for label, pairs in schedules.items():
++        assigned = frozenset(pairs)
++        m = compute_metrics(inst, assigned, k)
++        stage2_obj = (
++            m["l1"]
++            + lambdas[0] * m["location"]
++            + lambdas[1] * m["fatigue"]
++            + lambdas[2] * m["travel"]
++        )
++        rows.append({
++            "schedule": label,
++            "assignments": len(assigned),
++            "max_load": m["max_load"],
++            "min_load": m["min_load"],
++            "spread": m["spread"],
++            "l1": round(m["l1"], 4),
++            "location": m["location"],
++            "fatigue": m["fatigue"],
++            "travel": m["travel"],
++            "stage2_objective": round(stage2_obj, 4),
++            "hard_violations": len(check_schedule(inst, assigned)),
++            "beats_baseline": bool(base_max is not None and m["max_load"] < base_max),
++        })
++    return rows
+diff --git a/app/tests/test_m5_solver_views.py b/app/tests/test_m5_solver_views.py
+new file mode 100644
+index 0000000..93d5a9a
+--- /dev/null
++++ b/app/tests/test_m5_solver_views.py
+@@ -0,0 +1,67 @@
++"""Tests for M1 SAT checking, bounded-time M2/M3/M4 solving and M3 product_min wiring (M5, Hung)."""
++
++from dataclasses import replace
++import tempfile
++from pathlib import Path
++
++from app.solver_views import compare_schedule_metrics, run_m1_check, solve_schedule_in_app
++from m1_logic.prepare_instances import prepare_instances
++from m2_ilp.fixtures import week_slice
++from m2_ilp.instance import build_instance, toy_instance
++from m3_automata.product_min import minimize, product
++from m3_automata.regular_to_ilp import combined_dfa, load_rules, roster_strings, violations
++
++
++def test_combined_dfa_uses_product_min_exact_states():
++    rules = load_rules()
++    minimal, full = combined_dfa(rules)
++    expected_full = product(list(rules.values()))
++    expected_min = minimize(expected_full)
++    assert full.to_dict() == expected_full.to_dict()
++    assert minimal.to_dict() == expected_min.to_dict()
++    assert (len(full.states), len(minimal.states)) == (259, 15)
++
++
++def test_m1_sat_and_unsat_core_checks():
++    seed = build_instance().seed
++    with tempfile.TemporaryDirectory() as folder:
++        cases = prepare_instances(seed, output_dir=Path(folder))
++
++    sat_out = run_m1_check(cases["sat"])
++    assert sat_out["satisfiable"] is True
++    assert sat_out["unsat_core"] is None
++    assert isinstance(sat_out["model"], dict) and len(sat_out["model"]) == len(cases["sat"]["session_ids"])
++    assert sat_out["n_cnf_vars"] >= sat_out["n_assign_vars"] > 0
++    assert set(sat_out["linear_summary"]) >= {"capacity", "busy"}
++
++    unsat_out = run_m1_check(cases["unsat"])
++    assert unsat_out["satisfiable"] is False
++    assert unsat_out["model"] is False
++    assert unsat_out["unsat_core"] and any("capacity(" in c for c in unsat_out["unsat_core"])
++
++
++def test_in_app_solver_variants_and_infeasible_diagnosis():
++    toy = toy_instance()
++    res_m2 = solve_schedule_in_app(toy, time_limit=10)
++    assert res_m2["status"] == "optimal"
++    assert len(res_m2["assigned"]) == sum(toy.demand) == 4
++    assert res_m2["hard_violations"] == []
++
++    res_m4 = solve_schedule_in_app(toy, include_m4_soft=True, time_limit=10)
++    assert res_m4["status"] == "optimal"
++    assert res_m4["calibrated_m4_from_data"] is False
++
++    short = replace(toy, A=set(toy.A) - {(1, 0)})
++    infeas = solve_schedule_in_app(short, time_limit=10)
++    assert infeas["status"] == "infeasible"
++    assert infeas["assigned"] == frozenset()
++    assert infeas["diagnosis"] == [{"session": "Morning", "demand": 2, "missing": 1}]
++
++    w1 = week_slice(build_instance(), 1)
++    res_m3 = solve_schedule_in_app(w1, enforce_m3=True, time_limit=15)
++    assert res_m3["status"] == "optimal"
++    dfa, _ = combined_dfa(load_rules())
++    assert violations(roster_strings(w1, res_m3["assigned"]), {"R1xR2xR3": dfa})["any"] == 0
++
++    comp = compare_schedule_metrics(toy, {"Baseline": toy.baseline, "M2": res_m2["assigned"]})
++    assert len(comp) == 2 and all(row["hard_violations"] == 0 for row in comp)
