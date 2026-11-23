@@ -1,0 +1,313 @@
+diff --git a/DECISIONS.md b/DECISIONS.md
+index 090d24f..cf148f0 100644
+--- a/DECISIONS.md
++++ b/DECISIONS.md
+@@ -173,6 +173,26 @@ M2 should build on `encode_invigilator_assignment_linear`, whose capacity equali
+   validation and solver/simulator agreement must pass before results are saved.
+   See `m4_dynamics/README.md` for the full derivation and assumptions.
+ 
++## M5 - Unified dashboard and reproducibility (2026-11-18)
++
++- Single-page layout: Render M1 CNF satisfiability and the 0/1 linear bridge, M2
++  schedule comparison and weekly filters, M3 `{M, A, N, -}` DFA verification, and
++  M4 Direction B fairness/equilibrium plots on one page so active schedule changes
++  propagate immediately across all four modules without hidden state.
++- Clean-clone startup and solver bounds: Load `data/seed.txt`, the raw dataset,
++  `m2_ilp/schedule.csv`, and M3 DFA specs automatically on open; compute M4's
++  soft-threshold refinement in memory when `m4_dynamics/fatigue_aware_schedule.csv`
++  is absent without writing into M1–M4 directories. Restrict interactive CBC solves
++  to `toy` and `subset` slices under a bounded `time_limit`, while `full` mode
++  inspects precomputed or strictly validated uploaded schedules.
++- Slice calibration fallback: Pooled lag-one OLS in M4 requires at least two
++  weekly blocks; single-day `toy` or short custom slices fall back transparently
++  to `full_instance` baseline parameters `(a, b, r)` and report the calibration
++  source rather than fabricating physiological parameters.
++- Deterministic `m5` stage: `run_all.py --stage m5` calls `app.precompute.run_m5`
++  to cross-check M1–M4 invariants and emit a sorted, timestamp-free JSON summary
++  without mutating upstream artifacts or leaving untracked files in the checkout.
++
+ ## Repo & Git policy
+ 
+ - Turned on Branch protection rule for `main` (require PR, no force-push, no deletion).
+diff --git a/README.md b/README.md
+index d4471d8..cac2b58 100644
+--- a/README.md
++++ b/README.md
+@@ -44,6 +44,18 @@ python run_all.py --seed "$(cat data/seed.txt)" --stage m4
+ python -m pytest m4_dynamics/tests -q
+ ```
+ 
++## Module 5
++
++M5 integrates M1–M4 into a single-page Streamlit inspection and decision-support
++dashboard with bounded live solving on slices and deterministic CLI verification.
++See [M5 documentation](app/README.md) for layout, controls and execution modes.
++
++```sh
++python run_all.py --seed "$(cat data/seed.txt)" --stage m5
++python -m pytest app/tests -q
++python -m streamlit run app/app.py
++```
++
+ ## AI tool use
+ 
+ AI assistance was used to discuss the M1 CNF design, Logic to ILP(LP) bridge, draft parts of the encoder and its tests, and improve the wording of the CNF design decisions.
+@@ -62,4 +74,9 @@ extension, numerical verification, report plots, tests and documentation. The
+ calibration assumptions and the lack of measured physiological fatigue are
+ documented in `m4_dynamics/README.md`.
+ 
++For M5, AI assistance was used to structure the single-page Streamlit dashboard,
++module adapters (`data_context`, `m1_section`–`m4_section`, `precompute`), input
++validation, `AppTest` integration checks and documentation. All displayed figures
++and metrics come directly from M1–M4 solvers and simulators without synthetic mocks.
++
+ AI assistance does not replace the team's responsibility for understanding, reviewing and explaining the work.
+diff --git a/app/README.md b/app/README.md
+index dae1c06..441ab61 100644
+--- a/app/README.md
++++ b/app/README.md
+@@ -1 +1,25 @@
+-# app — see the assignment brief section for this module.
++# M5 — Unified Streamlit Dashboard and Decision-Support Interface
++
++Module 5 integrates Modules 1–4 into a single-page Streamlit web application for schedule inspection, constraint verification, bounded re-solving, and vector fatigue analysis.
++
++## Reproduce
++
++From the repository root with Python 3.12 and `requirements.txt` installed:
++
++```sh
++python run_all.py --seed "$(cat data/seed.txt)" --stage m5
++python -m pytest app/tests -q
++python -m streamlit run app/app.py
++```
++
++## Architecture
++
++| File | Role |
++| --- | --- |
++| `data_context.py` | Seeded `Instance` loading, `full`/`subset`/`toy` slicing, and CSV upload validation |
++| `m1_section.py` | CNF satisfiability check, minimal UNSAT core extraction, and Logic-to-0/1-ILP bridge |
++| `m2_section.py` | Precomputed/uploaded/live CBC schedule evaluation, Baseline comparison, and weekly filters |
++| `m3_section.py` | `{M, A, N, -}` trace encoding, `R1`–`R3` and minimal product DFA checks, and `add_rules_to_m2` |
++| `m4_section.py` | Direction B `(a, b, r)` calibration, 52-week spread/variance curves, and perturbation decay |
++| `precompute.py` | Deterministic cross-module summary check invoked by `run_all.py --stage m5` |
++| `app.py` | Unified single-page layout auto-loading the default dataset on startup |
+diff --git a/app/app.py b/app/app.py
+new file mode 100644
+index 0000000..567b2b8
+--- /dev/null
++++ b/app/app.py
+@@ -0,0 +1,68 @@
++"""Unified single-page Streamlit dashboard integrating CO2011 Modules 1-4."""
++from __future__ import annotations
++from pathlib import Path
++import sys
++import streamlit as st
++
++ROOT_DIR = Path(__file__).resolve().parents[1]
++if str(ROOT_DIR) not in sys.path:
++    sys.path.insert(0, str(ROOT_DIR))
++
++from app.data_context import DATASET_MODES, DEFAULT_SUBSET_DAYS, load_dataset_context, read_seed
++from app.m1_section import render_m1_section
++from app.m2_section import render_m2_section
++from app.m3_section import render_m3_section
++from app.m4_section import render_m4_section
++
++SOURCE_LABELS = {"m2": "M2 0/1 ILP schedule", "m4": "M4 fatigue-aware schedule",
++                 "baseline": "Historical baseline", "live": "Live bounded CBC solve", "uploaded": "Uploaded CSV schedule"}
++
++
++def render_dashboard() -> None:
++    """Render sidebar controls, overview KPI ribbon, and M1-M4 sections on one page."""
++    st.set_page_config(page_title="CO2011 IAP — Unified M1–M5 Dashboard", layout="wide")
++    st.title("CO2011 Invigilator Assignment — Unified Module 1–5 Dashboard")
++    st.caption("Single-page decision-support interface linking M1 Logic/SAT, M2 0/1 ILP, M3 DFA rules, and M4 vector fatigue dynamics.")
++    default_seed = read_seed()
++    with st.sidebar:
++        st.header("Configuration & Inputs")
++        mode = st.selectbox("Dataset slice", list(DATASET_MODES), index=0, key="cfg_mode")
++        seed = int(st.number_input("Team seed", min_value=0, value=default_seed, step=1, key="cfg_seed"))
++        subset_days = st.slider("Subset horizon (days)", 1, 27, DEFAULT_SUBSET_DAYS, key="cfg_subset_days") if mode == "subset" else DEFAULT_SUBSET_DAYS
++        time_limit = int(st.slider("Live CBC time limit (s)", 5, 60, 15, 5, key="cfg_time_limit"))
++        allowed = ["m2", "m4", "baseline", "uploaded"] if mode == "full" else ["live", "m2", "m4", "baseline", "uploaded"]
++        source = st.selectbox("Active schedule source", allowed, format_func=SOURCE_LABELS.get, key=f"cfg_source_{mode}")
++        dataset_upload = st.file_uploader("Custom dataset CSV (optional)", type=["csv"], key="cfg_dataset_csv")
++        schedule_upload = st.file_uploader("Schedule CSV (dense M2 format)", type=["csv"], key="cfg_schedule_csv")
++
++    try:
++        ctx = load_dataset_context(mode, seed=seed, subset_days=subset_days,
++                                   csv_bytes=dataset_upload.getvalue() if dataset_upload is not None else None, time_limit=time_limit)
++    except ValueError as exc:
++        st.error(f"Dataset validation error: {exc}")
++        ctx = load_dataset_context(mode, seed=default_seed, subset_days=subset_days, time_limit=time_limit)
++
++    sched_bytes = schedule_upload.getvalue() if schedule_upload is not None else None
++    active_source = "uploaded" if sched_bytes is not None else ("m2" if source == "uploaded" else source)
++    for col, (lbl, val) in zip(st.columns(5), (
++        ("Dataset Slice", ctx.mode.upper()), ("Invigilators", str(len(ctx.instance.staff_ids))),
++        ("Exam Sessions", str(len(ctx.instance.session_names))), ("Total Demand", str(sum(ctx.instance.demand))),
++        ("Weights (LOC/FAT/TRV)", "/".join(f"{w:.2f}" for w in ctx.instance.soft_weights)),
++    )):
++        col.metric(lbl, val)
++    with st.expander("Inspect Loaded Sessions & Invigilator Availability", expanded=False):
++        c_sess, c_inv = st.columns(2)
++        c_sess.dataframe(ctx.sessions_df, use_container_width=True, hide_index=True)
++        c_inv.dataframe(ctx.invigilators_df, use_container_width=True, hide_index=True)
++    st.divider()
++    render_m1_section(ctx)
++    st.divider()
++    selection = render_m2_section(ctx, source=active_source, uploaded_csv=sched_bytes, time_limit=time_limit)
++    st.divider()
++    render_m3_section(ctx, selection, time_limit=time_limit)
++    st.divider()
++    render_m4_section(ctx, selection)
++
++
++if __name__ == "__main__":
++    render_dashboard()
+diff --git a/app/precompute.py b/app/precompute.py
+new file mode 100644
+index 0000000..5b23455
+--- /dev/null
++++ b/app/precompute.py
+@@ -0,0 +1,72 @@
++"""Deterministic Module 5 CLI verification and summary generator for run_all.py."""
++from __future__ import annotations
++import argparse, hashlib, json, logging, sys
++from pathlib import Path
++import numpy as np
++import streamlit.logger
++
++ROOT_DIR = Path(__file__).resolve().parents[1]
++if str(ROOT_DIR) not in sys.path:
++    sys.path.insert(0, str(ROOT_DIR))
++for _name in ("streamlit.runtime.caching.cache_data_api", "streamlit.runtime.scriptrunner_utils.script_run_context"):
++    streamlit.logger.get_logger(_name).setLevel(logging.ERROR)
++
++from app.data_context import DEFAULT_PATH, load_dataset_context, read_seed
++from app.m1_section import check_m1_feasibility
++from app.m2_section import DEFAULT_M2_PATH, evaluate_m2_schedules
++from app.m3_section import check_m3_schedule
++from app.m4_section import evaluate_m4_dynamics
++
++
++def build_m5_summary(seed: int) -> dict[str, object]:
++    """Validate M1-M4 dashboard adapters for `seed` and return a deterministic summary."""
++    ctx = load_dataset_context("full", seed=seed)
++    m1, m2 = check_m1_feasibility(ctx), evaluate_m2_schedules(ctx, source="m2")
++    m3, m4 = check_m3_schedule(ctx.instance, m2.assignment), evaluate_m4_dynamics(ctx, m2, weeks=52, delta_f0=1.0)
++    if not m1.satisfiable or not m2.feasible:
++        raise RuntimeError("M5 verification failed: full dataset M1/M2 check is infeasible")
++    r123 = m3.rule_summaries[-1]
++    return {
++        "module": "m5", "seed": ctx.seed,
++        "dataset_sha256": hashlib.sha256(Path(DEFAULT_PATH).read_bytes()).hexdigest(),
++        "m2_schedule_sha256": hashlib.sha256(DEFAULT_M2_PATH.read_bytes()).hexdigest() if DEFAULT_M2_PATH.is_file() else None,
++        "staff": len(ctx.instance.staff_ids), "sessions": len(ctx.instance.session_names), "total_demand": int(sum(ctx.instance.demand)),
++        "m1": {"satisfiable": m1.satisfiable, "num_vars": m1.num_vars, "num_clauses": m1.num_clauses},
++        "m2": {"source": m2.source_name, "feasible": m2.feasible, "max_load": int(m2.metrics["max_load"]),
++               "baseline_max_load": int(m2.baseline_metrics["max_load"]), "l1": round(float(m2.metrics["l1"]), 6)},
++        "m3": {"schedule_valid_dfa_accepted": m3.all_accepted, "accepted_staff": int(r123["accepted"]),
++               "rejected_staff": int(r123["rejected"]), "minimal_product_states": int(r123["states"]), "rule_violations": len(m3.violations)},
++        "m4": {"a": round(float(m4.parameters.a), 8), "b": round(float(m4.parameters.b), 8),
++               "stability": str(m4.stability_info["classification"]), "threshold": round(float(m4.threshold), 8),
++               "baseline_spread": round(float(np.ptp(m4.equilibria["baseline"])), 8),
++               "m2_spread": round(float(np.ptp(m4.equilibria["m2"])), 8),
++               "m4_spread": round(float(np.ptp(m4.equilibria["fatigue_aware"])), 8),
++               "m4_threshold_excess": round(float(m4.threshold_penalties["fatigue_aware"]), 8)},
++    }
++
++
++def serialize_m5_summary(summary: dict[str, object]) -> str:
++    """Serialize summary with sorted keys, LF newline, and strict NaN/Inf rejection."""
++    return json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\n"
++
++
++def run_m5(seed: int, out_path: Path | str | None = None) -> dict[str, object]:
++    """Run deterministic M5 verification; optionally write LF JSON to `out_path`."""
++    summary, payload = (s := build_m5_summary(seed)), serialize_m5_summary(s)
++    if out_path is not None:
++        (target := Path(out_path)).parent.mkdir(parents=True, exist_ok=True)
++        target.write_text(payload, encoding="utf-8", newline="\n")
++    sys.stdout.write(payload)
++    return summary
++
++
++def main() -> None:
++    ap = argparse.ArgumentParser(description=__doc__)
++    ap.add_argument("--seed", type=int, default=None, help="defaults to data/seed.txt")
++    ap.add_argument("--out", type=Path, default=None, help="optional output JSON path")
++    args = ap.parse_args()
++    run_m5(read_seed() if args.seed is None else args.seed, out_path=args.out)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/app/tests/test_app_integration.py b/app/tests/test_app_integration.py
+new file mode 100644
+index 0000000..43937a5
+--- /dev/null
++++ b/app/tests/test_app_integration.py
+@@ -0,0 +1,45 @@
++"""End-to-end AppTest and run_all.py determinism checks for Module 5."""
++from __future__ import annotations
++import json, subprocess, sys
++from pathlib import Path
++import pytest
++from streamlit.testing.v1 import AppTest
++from app.data_context import read_seed
++from app.m2_section import DEFAULT_M2_PATH
++from app.precompute import build_m5_summary, run_m5
++
++ROOT_DIR = Path(__file__).resolve().parents[2]
++APP_PATH = ROOT_DIR / "app" / "app.py"
++
++
++def test_unified_single_page_dashboard_initial_load_and_slice_switch():
++    at = AppTest.from_file(str(APP_PATH)).run(timeout=30)
++    assert not at.exception
++    subheaders = [s.value for s in at.subheader]
++    assert len(subheaders) == 4 and all(tag in " ".join(subheaders) for tag in ("M1.", "M2.", "M3.", "M4."))
++    metrics = {m.label: m.value for m in at.metric}
++    assert (metrics["Dataset Slice"], metrics["Invigilators"], metrics["Exam Sessions"]) == ("FULL", "73", "83")
++    assert metrics["CNF Status"] == "SAT" and metrics["Active Schedule"] == "M2"
++    assert metrics["Schedule valid (DFA-accepted)"] in ("Yes", "No")
++    assert "Calibrated (a, b, r)" in metrics and "Stability (|a| < 1)" in metrics
++    assert len(at.dataframe) >= 6 and len(at.get("imgs")) >= 2
++    at.sidebar.selectbox(key="cfg_mode").select("toy").run(timeout=20)
++    assert not at.exception
++    toy = {m.label: m.value for m in at.metric}
++    assert (toy["Dataset Slice"], toy["Invigilators"], toy["Exam Sessions"]) == ("TOY", "3", "2")
++
++
++def test_run_all_stage_m5_byte_deterministic_and_non_mutating(tmp_path):
++    seed, m2_before = read_seed(), DEFAULT_M2_PATH.read_bytes()
++    cmd = [sys.executable, str(ROOT_DIR / "run_all.py"), "--seed", str(seed), "--stage", "m5"]
++    run1 = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=True, check=True)
++    run2 = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=True, check=True)
++    assert run1.stdout == run2.stdout and run1.stderr == run2.stderr == b"" and DEFAULT_M2_PATH.read_bytes() == m2_before
++    parsed = json.loads(run1.stdout.decode("utf-8"))
++    assert parsed == build_m5_summary(seed) and parsed["m1"]["satisfiable"] is True and parsed["m2"]["max_load"] == 11
++    out_a, out_b = tmp_path / "a.json", tmp_path / "b.json"
++    run_m5(seed, out_path=out_a)
++    run_m5(seed, out_path=out_b)
++    assert out_a.read_bytes() == out_b.read_bytes() and b"\r\n" not in out_a.read_bytes()
++    with pytest.raises(ValueError):
++        build_m5_summary(-1)
+diff --git a/run_all.py b/run_all.py
+index 87628ae..c5b3f80 100644
+--- a/run_all.py
++++ b/run_all.py
+@@ -34,7 +34,9 @@ def main():
+ 
+         run_m4(a.seed)
+     if a.stage in ("all", "m5"):
+-        pass  # TODO: (optional) precompute artifacts the Streamlit app loads
++        from app.precompute import run_m5
++
++        run_m5(a.seed)
+ 
+ if __name__ == "__main__":
+     main()

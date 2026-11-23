@@ -1,0 +1,641 @@
+diff --git a/app/app.py b/app/app.py
+new file mode 100644
+index 0000000..19e06e7
+--- /dev/null
++++ b/app/app.py
+@@ -0,0 +1,111 @@
++"""Streamlit entry point for the CO2011 Module 5 presentation."""
++
++from __future__ import annotations
++
++import csv
++import logging
++import sys
++from datetime import date
++from io import StringIO
++from pathlib import Path
++from urllib.parse import quote, unquote
++
++ROOT_DIR = Path(__file__).resolve().parents[1]
++# Streamlit prepends app/; the package must win over the sibling app.py.
++if sys.path[0] != str(ROOT_DIR):
++    sys.path.insert(0, str(ROOT_DIR))
++
++import streamlit as st
++
++from app.data_views import load_csv_bytes, load_preset_instance
++from app.solver_views import run_m1_check
++from m1_logic.data_loader import REQUIRED_COLUMNS, STAFF_COLUMN
++
++LOGGER = logging.getLogger(__name__)
++ROUTES = {
++    "overview": "Tổng quan kiến trúc",
++    "m1": "1 · Logic và SAT",
++    "m2": "2 · Tối ưu lịch ILP",
++    "m3": "3 · Quy tắc thời gian DFA",
++    "m4": "4 · Fatigue và công bằng",
++    "pipeline": "Demo đầu-cuối",
++}
++NAV_LABELS = {
++    "overview": "Tổng quan", "m1": "1 · Logic", "m2": "2 · Xếp lịch",
++    "m3": "3 · DFA", "m4": "4 · Fatigue", "pipeline": "Demo đầu-cuối",
++}
++HEADLINES = {
++    "m1": ("Có thể xếp đủ người không?", "Đổi kịch bản SAT / UNSAT để xem lịch chứng minh hoặc lõi mâu thuẫn."),
++    "m2": ("Chọn lịch cân bằng hơn", "Giảm tải đỉnh trước, rồi tối ưu độ lệch L1 và các khoản phạt mềm."),
++    "m3": ("Lịch có hợp lệ theo thời gian?", "Đọc từng ngày bằng DFA và chỉ ra trạng thái phát hiện vi phạm."),
++    "m4": ("Nhiễu ban đầu có tắt dần?", "Đổi mức nhiễu và quan sát fatigue tiến về điểm cân bằng."),
++    "pipeline": ("Từ dữ liệu đến một lịch đã kiểm tra", "Theo dõi bốn bước trên cùng bộ dữ liệu và cùng lịch được chọn."),
++}
++
++
++def stage_navigation() -> str:
++    stages = tuple(ROUTES)
++    with st.container():
++        st.markdown('<span class="iap-nav-marker" hidden></span>', unsafe_allow_html=True)
++        section, previous, following = st.columns((6.5, 1, 1))
++        route = section.radio("Phần trình chiếu", stages, format_func=NAV_LABELS.__getitem__,
++                              key="route", horizontal=True, label_visibility="collapsed")
++        if route != "overview":
++            position = stages.index(route)
++            previous_route = stages[position - 1]
++            next_route = stages[(position + 1) % len(stages)]
++            previous.button("Phần trước", help=ROUTES[previous_route], key="stage_previous", use_container_width=True,
++                            on_click=st.session_state.update, args=({"route": previous_route},))
++            following.button("Phần tiếp", help=ROUTES[next_route], key="stage_next", use_container_width=True,
++                             type="primary", on_click=st.session_state.update, args=({"route": next_route},))
++        return route
++
++
++@st.cache_data(show_spinner=False)
++def cached_preset(seed: int, preset: str, scenario: str):
++    return load_preset_instance(preset, seed=seed, m1_scenario=scenario)
++
++
++def uploaded_dataset(raw: bytes, seed: int):
++    if len(raw) > 512 * 1024:
++        raise ValueError("The dataset exceeds the byte limit")
++    rows = csv.DictReader(StringIO(raw.decode("utf-8-sig"), newline=""))
++    if not set(REQUIRED_COLUMNS) <= set(rows.fieldnames or ()):
++        raise ValueError("Required dataset columns are missing")
++    staff, sessions, dates = set(), set(), set()
++    for index, row in enumerate(rows, 1):
++        if index > 2_000:
++            raise ValueError("Too many CSV records")
++        if not any(row.values()):
++            continue
++        person = (row[STAFF_COLUMN] or "").strip()
++        session = (row["MS Ca thi"] or "").strip()
++        if any(ord(char) < 32 for char in person + session):
++            raise ValueError("An identifier contains a control character")
++        staff.add(person)
++        sessions.add((session, (row["Nhiệm vụ"] or "").strip().partition("_")[0]))
++        dates.add(date.fromisoformat((row["Ngày"] or "").strip()[:10]))
++        if len(staff) > 150 or len(sessions) > 150:
++            raise ValueError("Too many staff or sessions")
++    if not dates or (max(dates) - min(dates)).days >= 120:
++        raise ValueError("The dataset has no dates or spans more than 120 days")
++    data, inst = load_csv_bytes(raw, seed=seed)
++    if len(inst.staff_ids) * len(inst.overlaps) > 15_000:
++        raise ValueError("Too many overlap constraints for a live demo")
++    return data, inst
++
++
++def presentation_logic(data: dict) -> dict:
++    # M1 serializes core labels with delimiters. Encode user-supplied identifiers first.
++    encoded = {
++        **data,
++        "staff_ids": [quote(person, safe="") for person in data["staff_ids"]],
++        "session_ids": [(quote(code, safe=""), quote(campus, safe="")) for code, campus in data["session_ids"]],
++    }
++    result = run_m1_check(encoded)
++    if result["satisfiable"]:
++        result["model"] = {
++            unquote(session): [unquote(person) for person in people]
++            for session, people in result["model"].items()
++        }
++    return result
+diff --git a/app/presentation.css b/app/presentation.css
+index 4b51636..0bf1d7a 100644
+--- a/app/presentation.css
++++ b/app/presentation.css
+@@ -141,6 +141,42 @@
+ [data-testid="stMarkdownContainer"] > table:has(.katex) th {
+   background: color-mix(in srgb, var(--iap-blue) 12%, transparent);
+ }
++/* Select the dedicated Streamlit block, not its ancestors. */
++[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"] > .element-container .iap-nav-marker) {
++  position: sticky;
++  top: 3.25rem;
++  z-index: 4;
++  padding: .65rem .8rem;
++  background: #f5f7fe;
++  border: 1px solid var(--iap-line);
++  border-radius: var(--iap-radius-card);
++  box-shadow: var(--iap-shadow);
++  color: var(--iap-ink);
++}
++.element-container:has(.iap-nav-marker, .iap-controls-marker, iframe[height="0"]) { display: none; }
++[data-testid="stVerticalBlock"]:has(> .element-container .iap-controls-marker) > [data-testid="stHorizontalBlock"] {
++  align-items: flex-end;
++}
++[data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) { gap: .5rem; }
++[data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) [data-testid="stHorizontalBlock"] {
++  align-items: center;
++}
++[data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) [role="radiogroup"] { gap: .2rem; }
++[data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) label {
++  min-height: 2.75rem;
++  padding: .25rem .48rem;
++  border-radius: var(--iap-radius-control);
++  color: var(--iap-ink);
++}
++[data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) label:has(input:checked) {
++  background: #e1ebff;
++  box-shadow: inset 0 0 0 1px #9abaf0;
++  font-weight: 650;
++}
++.iap-hero.iap-hero-compact { padding: 1.15rem clamp(1rem, 3vw, 2rem); }
++.iap-hero-compact::after { display: none; }
++.iap-hero-compact h1 { font-size: clamp(1.75rem, 3.3vw, 2.65rem); max-width: none; padding: .4rem 0 .2rem; }
++.iap-hero-compact p { max-width: 70ch; }
+ .iap-session, .iap-rules li {
+   color: var(--iap-ink);
+   background: var(--iap-surface);
+@@ -186,3 +222,28 @@
+ .iap-conflict b { font-size: 1.2rem; }
+ [data-testid="stTabs"] [role="tab"] { font-size: 1rem; min-height: 2.75rem; padding-inline: .7rem; }
+ [data-testid="stTabs"] [role="tab"][aria-selected="true"] { font-weight: 700; }
++@media (max-width: 680px) {
++  [data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) [data-testid="stHorizontalBlock"] {
++    display: grid;
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++    gap: .5rem;
++  }
++  [data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) [data-testid="column"] { width: auto; }
++  [data-testid="stVerticalBlock"]:has(> .element-container .iap-nav-marker) [data-testid="column"]:first-child {
++    grid-column: 1 / -1;
++  }
++  .iap-rules { grid-template-columns: 1fr; }
++  [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"] > .element-container .iap-nav-marker) {
++    position: static;
++  }
++}
++@media (max-width: 1020px) {
++  .iap-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .iap-hero::after { display: none; }
++  .iap-hero h1 { max-width: 25ch; }
++  .iap-hero p { max-width: 64ch; }
++}
++@media (max-width: 520px) {
++  .iap-flow { grid-template-columns: 1fr; }
++  .iap-hero { border-radius: 1.3rem; }
++}
+diff --git a/app/presentation_views.py b/app/presentation_views.py
+index 842579c..0fb1376 100644
+--- a/app/presentation_views.py
++++ b/app/presentation_views.py
+@@ -12,6 +12,9 @@ import streamlit as st
+ from app.data_views import staff_workload_rows, week_options, weekly_assignment_rows
+ from app.presentation import hero, memo, named_rows, schedule_label, spreadsheet_text, table
+ from app.solver_views import compare_schedule_metrics
++from app.temporal_views import (
++    compare_temporal_schedules, evaluate_temporal_validity, load_automata_suite, staff_daily_trace_rows, trace_word,
++)
+ 
+ PLAN_COLUMNS = {
+     "week": "Tuần", "date": "Ngày", "time": "Giờ", "class": "Buổi", "session_id": "Mã ca",
+@@ -235,3 +238,105 @@ def workload_comparison(inst, pairs, comparison: list[dict]) -> None:
+     with st.expander("Tải của từng giám thị"):
+         table(staff_rows, {"staff_id": "Giám thị", "total_load": "Tổng số ca", "cs1_load": "CS1", "cs2_load": "CS2",
+                            **{f"W{w['week']}": f"Tuần {w['week']}" for w in week_options(inst)}})
++
++
++@st.cache_resource(show_spinner=False)
++def automata() -> dict:
++    # The suite is only read; never mutate the shared DFA objects.
++    return load_automata_suite()
++
++
++RULES = {
++    "R1": "Tối đa 2 ngày làm liên tiếp",
++    "R2": "Nghỉ ngày kế tiếp sau ca tối, nếu còn trong kỳ",
++    "R3": "Tối đa 4 ngày làm trong bất kỳ 7 ngày liên tiếp",
++}
++
++
++def rule_legend(counts: dict | None = None) -> None:
++    cards = []
++    for rule, description in RULES.items():
++        detail = "" if counts is None else f'<span><strong>{counts[rule]}</strong> giám thị vi phạm</span>'
++        cards.append(f'<li><b>{rule}</b><span>{description}</span>{detail}</li>')
++    st.markdown('<ul class="iap-rules" role="list" aria-label="Ba quy tắc DFA">' + "".join(cards) + "</ul>",
++                unsafe_allow_html=True)
++
++
++def word_lab() -> None:
++    st.header("Thử một chuỗi ngày")
++    st.write("**M** Sáng · **A** Chiều · **N** Tối · **-** Nghỉ")
++    examples = {"MA-M": "Có ngày nghỉ", "MAM": "Vi phạm R1 · ba ngày liên tiếp",
++                "NM": "Vi phạm R2 · đi làm sau ca tối", "MM-MM-M": "Vi phạm R3 · năm ngày trong bảy ngày"}
++    st.selectbox("Chọn chuỗi mẫu", list(examples), format_func=examples.__getitem__, key="word_preset",
++                 on_change=lambda: st.session_state.update(dfa_word=st.session_state.word_preset))
++    st.session_state.setdefault("dfa_word", "MA-M")
++    word = st.text_input("Chuỗi ngày cần kiểm tra", key="dfa_word", max_chars=120).strip().upper()
++    if not word:
++        st.info("Nhập ít nhất một ký hiệu để xem vết chạy.")
++        return
++    if set(word) - {"M", "A", "N", "-"}:
++        st.error("Chỉ nhập M, A, N hoặc dấu gạch ngang (-), không chèn khoảng trắng giữa các ngày.")
++        return
++    suite = automata()
++    machine = suite["minimal"]
++    trace = trace_word(machine, word)
++    if machine.accepts(word):
++        st.success("Chuỗi được DFA chấp nhận: thỏa cả R1, R2 và R3.")
++    else:
++        failed = "; ".join(f"{rule} — {RULES[rule]}" for rule, dfa in suite["rules"].items() if not dfa.accepts(word))
++        st.warning(f"Chuỗi bắt đầu vi phạm ở ngày {trace['first_violation_day']}. Quy tắc bị vi phạm: {failed}.")
++    rule_legend()
++    table([{"day": day, "symbol": symbol, "state": state} for day, (symbol, state) in
++           enumerate(zip(word, trace["states"][1:]), start=1)], {"day": "Ngày", "symbol": "Ký hiệu", "state": "Trạng thái DFA tích"})
++    with st.expander("Cách đọc trạng thái và tối giản DFA"):
++        st.write(f"Bắt đầu tại `{machine.start}`; bảng hiện trạng thái sau khi đọc từng ngày. "
++                 "R2 không yêu cầu một ngày nghỉ ngoài phạm vi chuỗi.")
++        st.write("**R4** chỉ để tham khảo: giới hạn |#M − #A| ≤ 3 tại mọi tiền tố dùng bộ đếm hữu hạn. "
++                 "Cân bằng chính xác cuối kỳ không chính quy: giao với M*A* cho {MⁿAⁿ}.")
++        table([{"machine": label, "before": reach, "after": mini} for label, reach, mini in suite["counts_table"]],
++              {"machine": "DFA", "before": "Trạng thái tới được", "after": "Sau tối giản"})
++
++
++def temporal_panel(inst, schedules: dict, active: str, *, compact: bool = False) -> None:
++    suite = automata()
++    pairs = schedules[active]
++    audit = memo("temporal", (inst, pairs), lambda: evaluate_temporal_validity(inst, pairs, suite=suite))
++    count = f"{audit['accepted_count']}/{audit['total_staff']}"
++    if audit["schedule_valid"]:
++        st.success(f"Lịch hợp lệ — {count} chuỗi được DFA chấp nhận, không có vi phạm H1–H3.")
++    elif audit["dfa_accepted_all"]:
++        st.warning(f"{count} chuỗi được DFA chấp nhận nhưng lịch vi phạm H1–H3.")
++    else:
++        st.warning(f"Lịch không được DFA chấp nhận — {audit['rejected_count']} chuỗi vi phạm ({count} đạt).")
++    rv = audit["rule_violations"]
++    rule_legend(rv)
++    if compact:
++        return
++    staff_filter = st.selectbox(
++        "Lọc giám thị theo kết quả", ["Tất cả", "Vi phạm bất kỳ", *RULES],
++        format_func=lambda item: f"{item} · {RULES[item]}" if item in RULES else item, key="rule_filter",
++    )
++    visible = [
++        {**row, "dfa_accepted": "Đạt" if row["dfa_accepted"] else "Không đạt",
++         "broken_rules": ", ".join(rule for rule in RULES if not row[f"{rule}_ok"]) or "—"}
++        for row in audit["staff_rows"]
++        if staff_filter == "Tất cả" or (staff_filter == "Vi phạm bất kỳ" and not row["dfa_accepted"])
++        or (staff_filter in RULES and not row[f"{staff_filter}_ok"])
++    ]
++    if visible:
++        st.subheader(f"{len(visible)} giám thị")
++        table(visible, {"staff_id": "Giám thị", "roster_string": "Chuỗi ngày", "work_days": "Ngày làm", "dfa_accepted": "DFA",
++                        "broken_rules": "Quy tắc vi phạm", "first_violation_date": "Vi phạm đầu tiên (R1–R3)"})
++        with st.expander("Xem vết trạng thái của một giám thị"):
++            staff_id = st.selectbox("Giám thị cần kiểm tra", [row["staff_id"] for row in visible], key="trace_staff_id")
++            table(staff_daily_trace_rows(inst, pairs, staff_id, suite=suite),
++                  {"date": "Ngày", "symbol": "Ký hiệu lịch", "R1_state": "R1", "R2_state": "R2",
++                   "R3_state": "R3", "product_state": "DFA tích"})
++    else:
++        st.info("Không có giám thị khớp bộ lọc. Chọn Tất cả để xem lại danh sách.")
++    with st.expander("So sánh lịch và cách đọc chuỗi"):
++        st.write("Mỗi ngày có một ký hiệu. Nếu có nhiều ca, ưu tiên N, rồi A, rồi M. Ngày không có ca là dấu gạch ngang.")
++        st.write(f"R4 (tham khảo): {rv['R4_prefix']} người vượt ngưỡng trong kỳ, {rv['R4_end']} người ở cuối kỳ.")
++        comparison = memo("temporal_comparison", (inst, schedules), lambda: compare_temporal_schedules(inst, schedules, suite=suite))
++        table(named_rows(comparison), {"schedule": "Lịch", "dfa_accepted": "Số chuỗi đạt", "rejected": "Số chuỗi vi phạm",
++                                      "R1_violations": "R1", "R2_violations": "R2", "R3_violations": "R3"})
+diff --git a/app/temporal_views.py b/app/temporal_views.py
+new file mode 100644
+index 0000000..057b90d
+--- /dev/null
++++ b/app/temporal_views.py
+@@ -0,0 +1,205 @@
++"""Automaton-based temporal validity audit and roster string trace (M5, Phuc)."""
++
++from __future__ import annotations
++
++from datetime import datetime, timedelta
++
++from m2_ilp.instance import Instance
++from m2_ilp.validate import check_schedule
++from m3_automata import rules as m3_rules
++from m3_automata.dfa import DFA
++from m3_automata.encode_strings import SYMBOL_BY_START, day_symbol
++from m3_automata.product_min import counts_table, minimize, product
++from m3_automata.regular_to_ilp import load_rules, violations
++
++
++def _session_symbol(start: datetime) -> str:
++    """Map session start timestamp to M, A or N, with hour fallback for custom CSVs."""
++    key = f"{start:%H}g{start:%M}"
++    if key in SYMBOL_BY_START:
++        return SYMBOL_BY_START[key]
++    if start.hour < 12:
++        return "M"
++    if start.hour < 17:
++        return "A"
++    return "N"
++
++
++def build_roster_strings(inst: Instance, assigned) -> tuple[list, dict[str, str]]:
++    """Build full calendar span and one daily string over {M, A, N, -} per staff member."""
++    first, last = min(inst.day), max(inst.day)
++    days = [first + timedelta(days=k) for k in range((last - first).days + 1)]
++    day_index = {d: t for t, d in enumerate(days)}
++    classes = [_session_symbol(start) for start, _ in inst.intervals]
++    worked: dict[tuple[int, int], set[str]] = {}
++    for i, j in set(assigned):
++        worked.setdefault((i, day_index[inst.day[j]]), set()).add(classes[j])
++    strings = {
++        person: "".join(day_symbol(worked.get((i, t), ())) for t in range(len(days)))
++        for i, person in enumerate(inst.staff_ids)
++    }
++    return days, strings
++
++
++def load_automata_suite() -> dict:
++    """Load submitted DFAs R1-R3, their minimal product R1xR2xR3, and R4 (c=3)."""
++    graded = load_rules()
++    full_prod = product(list(graded.values()))
++    min_prod = minimize(full_prod)
++    r4_dfa = (
++        DFA.load(m3_rules.Path(m3_rules.__file__).resolve().parent / m3_rules.RULE_FILES["R4"])
++        if (m3_rules.Path(m3_rules.__file__).resolve().parent / m3_rules.RULE_FILES["R4"]).is_file()
++        else m3_rules.r4(3)
++    )
++    return {
++        "rules": graded,
++        "product": full_prod,
++        "minimal": min_prod,
++        "r4": r4_dfa,
++        "counts_table": counts_table(),
++    }
++
++
++def trace_word(dfa: DFA, word: str) -> dict:
++    """Run word step by step on dfa and identify the first day entering a trap state."""
++    traps = set(dfa.trap_states())
++    q = dfa.start
++    states = [q]
++    first_violation_day = None
++    for idx, symbol in enumerate(word, start=1):
++        q = dfa.transitions[q][symbol]
++        states.append(q)
++        if first_violation_day is None and q in traps:
++            first_violation_day = idx
++    accepted = q in dfa.accepting
++    if not accepted and first_violation_day is None:
++        first_violation_day = len(word)
++    return {
++        "accepted": accepted,
++        "final_state": q,
++        "states": states,
++        "first_violation_day": first_violation_day,
++    }
++
++
++def evaluate_temporal_validity(
++    inst: Instance,
++    assigned,
++    suite: dict | None = None,
++) -> dict:
++    """Compute the 'schedule valid (DFA-accepted)' flag, rule counts and per-staff traces."""
++    suite = load_automata_suite() if suite is None else suite
++    days, strings = build_roster_strings(inst, assigned)
++    hard_issues = check_schedule(inst, assigned)
++    graded = suite["rules"]
++    minimal = suite["minimal"]
++    r4_dfa = suite["r4"]
++
++    rule_counts = violations(strings, graded)
++    r4_info = m3_rules.r4_counts(strings, c=3)
++    dfa_accepted_all = rule_counts["any"] == 0
++
++    staff_rows = []
++    for person in inst.staff_ids:
++        word = strings[person]
++        r1_ok = graded["R1"].accepts(word)
++        r2_ok = graded["R2"].accepts(word)
++        r3_ok = graded["R3"].accepts(word)
++        r4_ok = r4_dfa.accepts(word)
++        trace = trace_word(minimal, word)
++        broken = [
++            name for name, ok in (("R1", r1_ok), ("R2", r2_ok), ("R3", r3_ok)) if not ok
++        ]
++        v_day = trace["first_violation_day"]
++        staff_rows.append({
++            "staff_id": person,
++            "roster_string": word,
++            "work_days": sum(ch != "-" for ch in word),
++            "M": word.count("M"),
++            "A": word.count("A"),
++            "N": word.count("N"),
++            "R1_ok": r1_ok,
++            "R2_ok": r2_ok,
++            "R3_ok": r3_ok,
++            "R4_ok": r4_ok,
++            "dfa_accepted": trace["accepted"],
++            "broken_rules": ", ".join(broken) if broken else "None",
++            "first_violation_day": v_day,
++            "first_violation_date": days[v_day - 1].isoformat() if v_day else None,
++        })
++
++    return {
++        "schedule_valid": len(hard_issues) == 0 and dfa_accepted_all,
++        "dfa_accepted_all": dfa_accepted_all,
++        "hard_violations": hard_issues,
++        "total_staff": len(inst.staff_ids),
++        "accepted_count": rule_counts["accepted"],
++        "rejected_count": rule_counts["any"],
++        "calendar_days": len(days),
++        "rule_violations": {
++            **rule_counts,
++            "R4_prefix": r4_info["prefix_rejected"],
++            "R4_end": r4_info["end_rejected"],
++        },
++        "state_counts": [
++            {"automaton": label, "reachable_states": reach, "minimal_states": mini}
++            for label, reach, mini in suite["counts_table"]
++        ],
++        "staff_rows": staff_rows,
++    }
++
++
++def compare_temporal_schedules(
++    inst: Instance,
++    schedules: dict[str, object],
++    suite: dict | None = None,
++) -> list[dict]:
++    """Compare DFA temporal validity across multiple named schedules on inst."""
++    suite = load_automata_suite() if suite is None else suite
++    rows = []
++    for label, pairs in schedules.items():
++        audit = evaluate_temporal_validity(inst, pairs, suite=suite)
++        rv = audit["rule_violations"]
++        rows.append({
++            "schedule": label,
++            "schedule_valid": audit["schedule_valid"],
++            "dfa_accepted": f"{audit['accepted_count']}/{audit['total_staff']}",
++            "rejected": audit["rejected_count"],
++            "R1_violations": rv["R1"],
++            "R2_violations": rv["R2"],
++            "R3_violations": rv["R3"],
++            "R4_prefix_violations": rv["R4_prefix"],
++        })
++    return rows
++
++
++def staff_daily_trace_rows(
++    inst: Instance,
++    assigned,
++    staff_id: str,
++    suite: dict | None = None,
++) -> list[dict]:
++    """Return day-by-day state transitions for one invigilator across R1, R2, R3 and product."""
++    if staff_id not in inst.staff_ids:
++        raise ValueError(f"Unknown staff_id: {staff_id!r}")
++    suite = load_automata_suite() if suite is None else suite
++    days, strings = build_roster_strings(inst, assigned)
++    word = strings[staff_id]
++    traces = {
++        "R1": trace_word(suite["rules"]["R1"], word)["states"],
++        "R2": trace_word(suite["rules"]["R2"], word)["states"],
++        "R3": trace_word(suite["rules"]["R3"], word)["states"],
++        "R1xR2xR3": trace_word(suite["minimal"], word)["states"],
++    }
++    return [
++        {
++            "day_index": idx + 1,
++            "date": days[idx].isoformat(),
++            "symbol": word[idx],
++            "R1_state": traces["R1"][idx + 1],
++            "R2_state": traces["R2"][idx + 1],
++            "R3_state": traces["R3"][idx + 1],
++            "product_state": traces["R1xR2xR3"][idx + 1],
++        }
++        for idx in range(len(word))
++    ]
+diff --git a/app/tests/test_m5_temporal_views.py b/app/tests/test_m5_temporal_views.py
+new file mode 100644
+index 0000000..1fa229a
+--- /dev/null
++++ b/app/tests/test_m5_temporal_views.py
+@@ -0,0 +1,111 @@
++"""Tests for M3 temporal validity flag, violation counts and DFA trace (M5, Phuc)."""
++
++from datetime import date, datetime
++from pathlib import Path
++
++from app.temporal_views import (
++    build_roster_strings,
++    compare_temporal_schedules,
++    evaluate_temporal_validity,
++    load_automata_suite,
++    trace_word,
++)
++from m2_ilp.config import ModelConfig, TEAM_ID
++from m2_ilp.fixtures import week_slice
++from m2_ilp.instance import Instance, build_instance
++from m3_automata.encode_strings import encode_strings
++from m3_automata.regular_to_ilp import solve_with_rules
++from m4_dynamics.workload import read_schedule
++from tools.make_seed import seed_for, soft_weights
++
++
++def test_baseline_and_m2_schedule_temporal_flags_match_m3_numbers():
++    inst = build_instance()
++    suite = load_automata_suite()
++    _, strings = build_roster_strings(inst, inst.baseline)
++    assert strings == encode_strings()
++
++    base_audit = evaluate_temporal_validity(inst, inst.baseline, suite=suite)
++    assert base_audit["schedule_valid"] is False
++    assert base_audit["dfa_accepted_all"] is False
++    assert (base_audit["accepted_count"], base_audit["rejected_count"]) == (41, 32)
++    assert base_audit["rule_violations"] == {
++        "R1": 28,
++        "R2": 5,
++        "R3": 3,
++        "any": 32,
++        "accepted": 41,
++        "R4_prefix": 20,
++        "R4_end": 19,
++    }
++
++    m2_path = Path(__file__).resolve().parents[2] / "m2_ilp" / "schedule.csv"
++    m2_assigned = read_schedule(inst, m2_path)
++    m2_audit = evaluate_temporal_validity(inst, m2_assigned, suite=suite)
++    assert m2_audit["schedule_valid"] is False
++    assert (m2_audit["accepted_count"], m2_audit["rejected_count"]) == (24, 49)
++    assert (
++        m2_audit["rule_violations"]["R1"],
++        m2_audit["rule_violations"]["R2"],
++        m2_audit["rule_violations"]["R3"],
++    ) == (44, 6, 14)
++
++
++def test_dfa_enforced_schedule_sets_valid_flag_and_traces_violations():
++    suite = load_automata_suite()
++    w1 = week_slice(build_instance(), 1)
++    sol, _, _ = solve_with_rules(w1, ModelConfig(time_limit=15), suite["minimal"])
++    audit = evaluate_temporal_validity(w1, sol.assigned, suite=suite)
++    assert audit["schedule_valid"] is True
++    assert audit["dfa_accepted_all"] is True
++    assert audit["rejected_count"] == 0
++    assert all(row["dfa_accepted"] and row["first_violation_day"] is None for row in audit["staff_rows"])
++
++    bad_trace = trace_word(suite["rules"]["R1"], "-MMM-")
++    assert bad_trace["accepted"] is False
++    assert bad_trace["first_violation_day"] == 4
++    good_trace = trace_word(suite["rules"]["R2"], "N-M-")
++    assert good_trace["accepted"] is True
++    assert good_trace["first_violation_day"] is None
++
++    table = compare_temporal_schedules(w1, {"Baseline": w1.baseline, "M2+M3": sol.assigned}, suite=suite)
++    assert len(table) == 2 and table[1]["schedule_valid"] is True
++
++
++def test_custom_start_hours_and_hard_violation_invalidate_schedule_flag():
++    custom = Instance(
++        seed=seed_for(TEAM_ID),
++        availability="explicit",
++        staff_ids=["CB1", "CB2"],
++        session_names=["S_morning", "S_evening"],
++        demand=[1, 1],
++        campus=["CS1", "CS2"],
++        day=[date(2026, 5, 18), date(2026, 5, 19)],
++        intervals=[
++            (datetime(2026, 5, 18, 8, 0), datetime(2026, 5, 18, 10, 0)),
++            (datetime(2026, 5, 19, 19, 0), datetime(2026, 5, 19, 21, 0)),
++        ],
++        overlaps=[],
++        baseline=[(0, 0), (1, 1)],
++        A={(0, 0), (1, 1)},
++        preferences=["BAL", "BAL"],
++        soft_weights=soft_weights(TEAM_ID),
++    )
++    valid_audit = evaluate_temporal_validity(custom, [(0, 0), (1, 1)])
++    assert valid_audit["schedule_valid"] is True
++    by_staff = {r["staff_id"]: r["roster_string"] for r in valid_audit["staff_rows"]}
++    assert by_staff == {"CB1": "M-", "CB2": "-N"}
++
++    missing_demand = evaluate_temporal_validity(custom, [(0, 0)])
++    assert missing_demand["dfa_accepted_all"] is True
++    assert missing_demand["schedule_valid"] is False
++    assert len(missing_demand["hard_violations"]) == 1
++
++    from app.temporal_views import staff_daily_trace_rows
++    import pytest
++
++    daily = staff_daily_trace_rows(custom, [(0, 0), (1, 1)], "CB1")
++    assert [r["symbol"] for r in daily] == ["M", "-"]
++    assert daily[0]["R1_state"] == "run1" and daily[1]["R1_state"] == "run0"
++    with pytest.raises(ValueError, match="Unknown staff_id"):
++        staff_daily_trace_rows(custom, [(0, 0), (1, 1)], "MISSING")

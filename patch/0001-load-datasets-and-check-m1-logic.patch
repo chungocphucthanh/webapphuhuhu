@@ -1,0 +1,276 @@
+diff --git a/app/__init__.py b/app/__init__.py
+new file mode 100644
+index 0000000..c1b4d9b
+--- /dev/null
++++ b/app/__init__.py
+@@ -0,0 +1 @@
++"""Streamlit unified dashboard and module adapters for CO2011 Module 5."""
+diff --git a/app/data_context.py b/app/data_context.py
+new file mode 100644
+index 0000000..b5d2a14
+--- /dev/null
++++ b/app/data_context.py
+@@ -0,0 +1,117 @@
++"""Shared dataset loading, seed configuration, and slicing for Module 5."""
++from __future__ import annotations
++from collections import Counter
++from dataclasses import dataclass, replace
++from datetime import date
++from pathlib import Path
++from random import Random
++import tempfile
++import pandas as pd
++import streamlit as st
++from m1_logic.data_loader import DEFAULT_PATH, PROJECT_FOLDER, load_dataset
++from m2_ilp.config import DEFAULT_AVAILABILITY, TEAM_ID, ModelConfig
++from m2_ilp.instance import DEFAULT_FLIP_RATE, Instance, build_instance, simulate_preferences, small_slice, toy_instance
++from m2_ilp.soft import fit_fatigue_k
++from tools.make_seed import seed_for
++
++DATASET_MODES: tuple[str, ...] = ("full", "subset", "toy")
++DEFAULT_SUBSET_DAYS: int = 7
++
++@dataclass(frozen=True)
++class DatasetContext:
++    mode: str
++    seed: int
++    data_dir: Path
++    instance: Instance
++    full_instance: Instance
++    config: ModelConfig
++    sessions_df: pd.DataFrame
++    invigilators_df: pd.DataFrame
++    is_live_solvable: bool
++
++def read_seed(path: Path | str | None = None) -> int:
++    """Read and validate a non-negative integer seed from data/seed.txt."""
++    target = PROJECT_FOLDER / "data" / "seed.txt" if path is None else Path(path)
++    if not target.is_file():
++        raise FileNotFoundError(f"Seed file not found: {target}")
++    text = target.read_text(encoding="utf-8-sig").strip()
++    if not text or not text.isdigit():
++        raise ValueError(f"Invalid non-negative integer seed in {target}: {text!r}")
++    return int(text)
++
++def derive_soft_weights(seed: int) -> tuple[float, float, float]:
++    """Derive deterministic (location, fatigue, travel) soft weights in [0.5, 2.0]."""
++    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
++        raise ValueError("seed must be a non-negative integer")
++    rng = Random(seed)
++    return tuple(round(rng.uniform(0.5, 2.0), 2) for _ in range(3))
++
++def derive_model_config(inst: Instance, *, time_limit: int = 15, stage: int = 1) -> ModelConfig:
++    """Fit daily fatigue threshold K from baseline and return a frozen ModelConfig."""
++    if isinstance(time_limit, bool) or not isinstance(time_limit, int) or time_limit <= 0:
++        raise ValueError("time_limit must be a positive integer")
++    return ModelConfig(stage=stage, fatigue_k=fit_fatigue_k(inst) if inst.baseline else 3, time_limit=time_limit)
++
++def build_seeded_instance(seed: int, *, data: dict | None = None, availability: str = DEFAULT_AVAILABILITY) -> Instance:
++    """Build an M2 Instance; delegates directly to build_instance for the canonical team seed."""
++    weights, raw, team_seed = list(derive_soft_weights(seed)), dict(load_dataset(DEFAULT_PATH) if data is None else data), seed_for(TEAM_ID)
++    if seed == team_seed:
++        return build_instance(seed, availability, data=raw)
++    base = build_instance(team_seed, "day" if availability == "seeded" else availability, data=raw)
++    pairs = base.A
++    if availability == "seeded":
++        codes, obs = sorted({c for c, _ in raw["session_ids"]}), {(i, raw["session_ids"][j][0]) for i, j in base.baseline}
++        rng, avail = Random(seed), set(obs)
++        avail.update((i, c) for i in sorted(range(len(base.staff_ids)), key=base.staff_ids.__getitem__)
++                     for c in codes if (i, c) not in obs and rng.random() < DEFAULT_FLIP_RATE)
++        pairs = {(i, j) for i in range(len(base.staff_ids)) for j, (c, _) in enumerate(raw["session_ids"]) if (i, c) in avail}
++    return replace(base, seed=seed, availability=availability, A=pairs, preferences=simulate_preferences(raw, seed),
++                   soft_weights=weights, flip_rate=DEFAULT_FLIP_RATE if availability == "seeded" else None)
++
++def slice_instance(inst: Instance, mode: str = "full", *, subset_days: int = DEFAULT_SUBSET_DAYS,
++                   start_date: date | None = None, end_date: date | None = None, max_sessions: int | None = None) -> Instance:
++    """Extract a validated full, subset, or toy Instance slice."""
++    if mode not in DATASET_MODES:
++        raise ValueError(f"mode must be one of {DATASET_MODES}, got {mode!r}")
++    if mode in ("full", "toy"):
++        toy = toy_instance() if mode == "toy" else None
++        return inst if mode == "full" else (toy if inst.seed == toy.seed else replace(toy, seed=inst.seed, soft_weights=list(derive_soft_weights(inst.seed))))
++    if start_date is None and end_date is None and max_sessions is None:
++        return small_slice(inst, n_days=subset_days)
++    lo, hi = start_date or min(inst.day), end_date or max(inst.day)
++    if (start_date is not None or end_date is not None) and lo > hi:
++        raise ValueError("start_date must not exceed end_date")
++    if start_date is None and end_date is None and (isinstance(max_sessions, bool) or not isinstance(max_sessions, int) or max_sessions < 1):
++        raise ValueError("max_sessions must be a positive integer")
++    sessions = [j for j, d in enumerate(inst.day) if lo <= d <= hi] if (start_date is not None or end_date is not None) else list(range(min(max_sessions, len(inst.session_names))))
++    if not sessions:
++        raise ValueError("Selected dataset slice contains no exam sessions")
++    smap = {old: new for new, old in enumerate(sessions)}
++    people = sorted({i for i, j in inst.A | set(inst.baseline) if j in smap})
++    pmap = {old: new for new, old in enumerate(people)}
++    return replace(inst, staff_ids=[inst.staff_ids[i] for i in people], session_names=[inst.session_names[j] for j in sessions],
++                   demand=[inst.demand[j] for j in sessions], campus=[inst.campus[j] for j in sessions], day=[inst.day[j] for j in sessions],
++                   intervals=[inst.intervals[j] for j in sessions], overlaps=[(smap[j], smap[k]) for j, k in inst.overlaps if j in smap and k in smap],
++                   baseline=[(pmap[i], smap[j]) for i, j in inst.baseline if j in smap], A={(pmap[i], smap[j]) for i, j in inst.A if j in smap},
++                   preferences=[inst.preferences[i] for i in people], soft_weights=list(inst.soft_weights))
++
++@st.cache_data(show_spinner=False)
++def load_dataset_context(mode: str = "full", seed: int | None = None, *, subset_days: int = DEFAULT_SUBSET_DAYS,
++                         start_date: date | None = None, end_date: date | None = None, max_sessions: int | None = None,
++                         csv_bytes: bytes | None = None, time_limit: int = 15) -> DatasetContext:
++    """Load, validate, slice, and cache the dataset context for all dashboard sections."""
++    resolved_seed = read_seed() if seed is None else seed
++    derive_soft_weights(resolved_seed)
++    if csv_bytes is not None and (not isinstance(csv_bytes, (bytes, bytearray)) or not bytes(csv_bytes).strip()):
++        raise ValueError("Uploaded CSV content must be non-empty bytes")
++    with tempfile.TemporaryDirectory() as folder:
++        src = DEFAULT_PATH if csv_bytes is None else Path(folder) / "u.csv"
++        if csv_bytes is not None:
++            src.write_bytes(bytes(csv_bytes))
++        full_inst = build_seeded_instance(resolved_seed, data=load_dataset(src))
++    inst = slice_instance(full_inst, mode, subset_days=subset_days, start_date=start_date, end_date=end_date, max_sessions=max_sessions)
++    avail_c, base_c = Counter(i for i, _ in inst.A), Counter(i for i, _ in inst.baseline)
++    sessions_df = pd.DataFrame([{"session_idx": j, "session_id": s, "campus": inst.campus[j], "day": inst.day[j].isoformat(),
++                                 "start": inst.intervals[j][0].strftime("%H:%M"), "end": inst.intervals[j][1].strftime("%H:%M"), "demand": inst.demand[j]} for j, s in enumerate(inst.session_names)])
++    invigilators_df = pd.DataFrame([{"staff_idx": i, "staff_id": p, "preference": inst.preferences[i], "available_sessions": avail_c[i], "baseline_load": base_c[i]} for i, p in enumerate(inst.staff_ids)])
++    return DatasetContext(mode, resolved_seed, PROJECT_FOLDER / "data", inst, full_inst, derive_model_config(inst, time_limit=time_limit), sessions_df, invigilators_df, mode in ("subset", "toy"))
+diff --git a/app/m1_section.py b/app/m1_section.py
+new file mode 100644
+index 0000000..0754d4e
+--- /dev/null
++++ b/app/m1_section.py
+@@ -0,0 +1,79 @@
++"""Module 1 dashboard section: CNF satisfiability, minimal UNSAT core, and ILP bridge."""
++from __future__ import annotations
++from dataclasses import dataclass
++import pandas as pd
++from pysat.solvers import Solver
++import streamlit as st
++from app.data_context import DatasetContext
++from m1_logic.cnf import encode_invigilator_assignment
++from m1_logic.linear_bridge import CONVERSION_ROWS, encode_invigilator_assignment_linear
++from m1_logic.unsat_core import encode_with_selectors, extract_minimal_core
++
++_RULE_FAMILIES = {"H1 Availability": "busy", "H2 No double-booking": "overlap", "H3 Exact capacity": "capacity"}
++
++@dataclass(frozen=True)
++class M1CheckResult:
++    satisfiable: bool
++    num_vars: int
++    num_clauses: int
++    sample_assignments: tuple[dict[str, object], ...]
++    unsat_core: tuple[str, ...]
++    summary_rows: tuple[dict[str, str], ...]
++
++def build_logic_ilp_table(ctx: DatasetContext | None = None, *, counts: dict[str, int] | None = None) -> tuple[dict[str, str], ...]:
++    """Return Logic-to-0/1-ILP conversion rows with active row counts when ctx is supplied."""
++    if counts is None and ctx is not None:
++        inst = ctx.instance
++        n, m = len(inst.staff_ids), len(inst.session_names)
++        counts = encode_invigilator_assignment_linear(n, inst.demand, [(i, j) for i in range(n) for j in range(m) if (i, j) not in inst.A], inst.overlaps).summary()
++    return tuple({"rule": r, "fol": fol, "clause": cl, "cnf": cnf, "linear_ilp": lin,
++                  "active_rows": str(counts.get(_RULE_FAMILIES[r], 0)) if (counts is not None and r in _RULE_FAMILIES) else "-"} for r, fol, cl, cnf, lin in CONVERSION_ROWS)
++
++@st.cache_data(show_spinner=False)
++def _solve_m1_cached(staff_ids: tuple[str, ...], session_names: tuple[str, ...], demands: tuple[int, ...],
++                     busy: tuple[tuple[int, int], ...], overlaps: tuple[tuple[int, int], ...]) -> M1CheckResult:
++    n, m = len(staff_ids), len(session_names)
++    cnf = encode_invigilator_assignment(n, list(demands), list(busy), list(overlaps))
++    with Solver(name="m22", bootstrap_with=cnf.clauses) as solver:
++        satisfiable, literals = bool(solver.solve()), (solver.get_model() or [])
++    counts = encode_invigilator_assignment_linear(n, list(demands), list(busy), list(overlaps)).summary()
++    if satisfiable:
++        by_s = [[staff_ids[(lit - 1) // m] for lit in sorted(literals) if 0 < lit <= n * m and (lit - 1) % m == j] for j in range(min(m, 12))]
++        sample, core = tuple({"session_id": session_names[j], "demand": demands[j], "assigned_staff": ", ".join(by_s[j])} for j in range(len(by_s))), ()
++    else:
++        guarded, selectors = encode_with_selectors(n, list(demands), list(busy), list(overlaps), staff_ids=list(staff_ids), session_labels=list(session_names))
++        raw_core = extract_minimal_core(guarded, selectors)
++        if raw_core is None:
++            raise RuntimeError("Selector CNF disagrees with plain CNF")
++        sample, core = (), tuple(selectors[s] for s in sorted(raw_core))
++    return M1CheckResult(satisfiable, cnf.nv, len(cnf.clauses), sample, core, build_logic_ilp_table(counts=counts))
++
++def check_m1_feasibility(ctx: DatasetContext, *, force_unsat: bool = False, extra_busy: tuple[tuple[int, int], ...] = ()) -> M1CheckResult:
++    """Run cached CNF SAT check and minimal UNSAT core extraction on DatasetContext."""
++    if not isinstance(ctx, DatasetContext) or type(force_unsat) is not bool:
++        raise ValueError("Expected DatasetContext and boolean force_unsat")
++    inst = ctx.instance
++    n, m = len(inst.staff_ids), len(inst.session_names)
++    busy_set = {(i, j) for i in range(n) for j in range(m) if (i, j) not in inst.A}
++    for pair in extra_busy:
++        if not isinstance(pair, (tuple, list)) or len(pair) != 2 or type(pair[0]) is not int or type(pair[1]) is not int or not (0 <= pair[0] < n and 0 <= pair[1] < m):
++            raise ValueError(f"extra_busy pair outside instance bounds: {pair!r}")
++        busy_set.add((pair[0], pair[1]))
++    if force_unsat and m > 0:
++        avail = [i for i in range(n) if (i, 0) not in busy_set]
++        busy_set.update((i, 0) for i in avail[max(0, inst.demand[0] - 1):])
++    return _solve_m1_cached(tuple(inst.staff_ids), tuple(inst.session_names), tuple(inst.demand), tuple(sorted(busy_set)), tuple(inst.overlaps))
++
++def render_m1_section(ctx: DatasetContext, *, force_unsat: bool = False) -> M1CheckResult:
++    """Render M1 feasibility status, witness/UNSAT core, and Logic-to-ILP bridge table."""
++    st.subheader("M1. Propositional Logic, CNF Satisfiability & 0/1 ILP Bridge")
++    result = check_m1_feasibility(ctx, force_unsat=force_unsat or st.checkbox("Simulate single-session staff shortage (UNSAT core)", value=False, key="m1_force_unsat"))
++    for col, (lbl, val) in zip(st.columns(4), (("CNF Status", "SAT" if result.satisfiable else "UNSAT"), ("CNF Variables", f"{result.num_vars:,}"),
++                                               ("CNF Clauses", f"{result.num_clauses:,}"), ("Assignment Vars (N×M)", f"{len(ctx.instance.staff_ids) * len(ctx.instance.session_names):,}"))):
++        col.metric(lbl, val)
++    (st.success if result.satisfiable else st.error)("Hard rules H1 (Availability), H2 (No double-booking), and H3 (Exact capacity) are satisfiable."
++                                                     if result.satisfiable else f"UNSAT: minimal unsatisfiable core has {len(result.unsat_core)} constraints.")
++    st.dataframe(pd.DataFrame(result.sample_assignments if result.satisfiable else {"minimal_unsat_core_constraint": result.unsat_core}), use_container_width=True, hide_index=True)
++    st.caption("Propositional Logic to 0/1 Integer Linear Programming equivalence bridge")
++    st.dataframe(pd.DataFrame(result.summary_rows), use_container_width=True, hide_index=True)
++    return result
+diff --git a/app/tests/test_m1_section.py b/app/tests/test_m1_section.py
+new file mode 100644
+index 0000000..45d16eb
+--- /dev/null
++++ b/app/tests/test_m1_section.py
+@@ -0,0 +1,55 @@
++"""Unit tests for Module 5 dataset context and Module 1 CNF/ILP section."""
++from __future__ import annotations
++from datetime import date
++import pytest
++from streamlit.testing.v1 import AppTest
++from app.data_context import DEFAULT_SUBSET_DAYS, PROJECT_FOLDER, build_seeded_instance, derive_soft_weights, load_dataset_context, read_seed, slice_instance
++from app.m1_section import build_logic_ilp_table, check_m1_feasibility
++from m2_ilp.config import TEAM_ID
++from tools.make_seed import seed_for, soft_weights
++
++def _m1_toy_page():
++    from app.data_context import load_dataset_context
++    from app.m1_section import render_m1_section
++    render_m1_section(load_dataset_context("toy"))
++
++def test_seed_and_weights(tmp_path):
++    assert read_seed() == seed_for(TEAM_ID) == 1358677812 and list(derive_soft_weights(1358677812)) == soft_weights(TEAM_ID)
++    with pytest.raises(FileNotFoundError):
++        read_seed(tmp_path / "missing.txt")
++    (tmp_path / "bad.txt").write_text("invalid\n", encoding="utf-8")
++    for fn in (lambda: read_seed(tmp_path / "bad.txt"), lambda: derive_soft_weights(-1), lambda: derive_soft_weights(True)):
++        with pytest.raises(ValueError):
++            fn()
++
++def test_strict_validation_errors():
++    inst = load_dataset_context("full").instance
++    for fn in (lambda: load_dataset_context("bad_mode"), lambda: load_dataset_context("toy", csv_bytes=b" "),
++               lambda: load_dataset_context("toy", csv_bytes=b"a,b\n1,2\n"),
++               lambda: slice_instance(inst, "subset", start_date=date(2026, 6, 10), end_date=date(2026, 5, 1)),
++               lambda: slice_instance(inst, "subset", start_date=date(2099, 1, 1), end_date=date(2099, 1, 2))):
++        with pytest.raises(ValueError):
++            fn()
++
++def test_dataset_context_modes_slices_and_upload():
++    toy_ctx, sub_ctx, full_ctx = load_dataset_context("toy"), load_dataset_context("subset", subset_days=DEFAULT_SUBSET_DAYS), load_dataset_context("full")
++    assert toy_ctx.is_live_solvable and (len(toy_ctx.sessions_df), len(toy_ctx.invigilators_df)) == (2, 3)
++    assert sub_ctx.is_live_solvable and 0 < len(sub_ctx.sessions_df) < len(sub_ctx.full_instance.session_names)
++    assert not full_ctx.is_live_solvable and (len(full_ctx.sessions_df), len(full_ctx.invigilators_df)) == (83, 73)
++    custom = build_seeded_instance(424242)
++    assert custom.seed == 424242 and custom.soft_weights == list(derive_soft_weights(424242)) and len(slice_instance(full_ctx.instance, "subset", max_sessions=4).session_names) == 4
++    d0 = full_ctx.instance.day[0]
++    assert all(d == d0 for d in slice_instance(full_ctx.instance, "subset", start_date=d0, end_date=d0).day)
++    assert len(load_dataset_context("full", csv_bytes=(PROJECT_FOLDER / "data/m1_cases/real_slice.csv").read_bytes()).sessions_df) > 0
++
++def test_m1_sat_unsat_bridge_and_render():
++    toy_ctx = load_dataset_context("toy")
++    sat_res, unsat_res = check_m1_feasibility(toy_ctx), check_m1_feasibility(toy_ctx, force_unsat=True)
++    assert sat_res.satisfiable and sat_res.unsat_core == () and all(len(str(r["assigned_staff"]).split(", ")) == r["demand"] for r in sat_res.sample_assignments)
++    assert not unsat_res.satisfiable and sum(x.startswith("Busy(") for x in unsat_res.unsat_core) == 2 and any(x.startswith("capacity(Morning)=2") for x in unsat_res.unsat_core)
++    with pytest.raises(ValueError):
++        check_m1_feasibility(toy_ctx, extra_busy=((99, 0),))
++    rows = {r["rule"]: r for r in build_logic_ilp_table(toy_ctx)}
++    assert check_m1_feasibility(load_dataset_context("subset")).satisfiable and rows["H1 Availability"]["linear_ilp"] == "x_ij == 0" and rows["H3 Exact capacity"]["active_rows"] == "2"
++    at = AppTest.from_function(_m1_toy_page).run()
++    assert not at.exception and at.metric[0].value == "SAT"

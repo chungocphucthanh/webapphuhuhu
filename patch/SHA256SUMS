@@ -1,0 +1,5 @@
+413ba6b6abe3f3259173008f111e71d324bf4ed0a45642bceed7ee2dee8ddb10  0001-load-datasets-and-check-m1-logic.patch
+c35a03fe8b1c83e4a5956c5382dc0e1065e25b7b062ecf72a565c1872ff928fa  0002-inspect-and-solve-m2-schedules.patch
+bbf1fc48cf57b2802c0c0769aab0fc19c5c455f5543fbdc3cce6f6299ad4fff0  0003-verify-m3-automata-temporal-rules.patch
+ce95e36d6a1d0d422ec8166d9851b037fab8bdf3aac6796b6745a01824322edc  0004-simulate-and-plot-m4-dynamics.patch
+fcf65c45e7756208123d9b1dc110a14dccbd5c678707825bbadbbb488c77f797  0005-wire-streamlit-app-precompute-and-docs.patch
