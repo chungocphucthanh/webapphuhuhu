@@ -1,0 +1,301 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{vntex}
+\usepackage[english,vietnamese]{babel}
+\usepackage{amsmath,amssymb,amsthm,latexsym}
+\usepackage{geometry}
+\geometry{a4paper, left=22mm, top=22mm, right=18mm, bottom=22mm}
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{makecell}
+\usepackage{hhline}
+\usepackage{adjustbox}
+\usepackage[skip=6pt]{caption}
+\usepackage{enumitem}
+\usepackage{lastpage}
+\usepackage{fancyhdr}
+\usepackage{multicol}
+\usepackage{rotating}
+\usepackage{setspace}
+\usepackage{placeins}
+\usepackage{float}
+
+\usepackage{graphicx}
+\usepackage{epsfig}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,backgrounds,positioning,shapes.geometric,automata,calc,fit}
+\usepackage[framemethod=tikz]{mdframed}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{listings}
+
+\usepackage{xcolor}
+\setlength{\columnseprule}{1pt}
+\def\columnseprulecolor{\color{black}}
+\definecolor{codegreen}{rgb}{0,0.45,0}
+\definecolor{codegray}{rgb}{0.45,0.45,0.45}
+\definecolor{codepurple}{rgb}{0.45,0,0.6}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.97}
+\definecolor{keywordblue}{rgb}{0.1,0.2,0.55}
+\definecolor{bordergray}{rgb}{0.75,0.75,0.75}
+
+% --- Giữ đủ 3 tên màu cho sơ đồ TikZ ở de_bai.tex & module3.tex (tông trầm, đồng bộ) ---
+\definecolor{navyaccent}{RGB}{38,50,66}
+\definecolor{tealaccent}{RGB}{52,84,84}
+\definecolor{amberaccent}{RGB}{105,82,58}
+
+% --- Cho phép dàn dòng linh hoạt, hạn chế tràn lề ---
+\setlength{\emergencystretch}{2em}
+
+% --- Cột bảng tự xuống dòng khớp chuẩn \textwidth ---
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\newcolumntype{C}{>{\centering\arraybackslash}X}
+\newcolumntype{R}{>{\raggedleft\arraybackslash}X}
+
+% --- Định dạng Caption bảng đặt phía trên giống mẫu học thuật ---
+\captionsetup[table]{
+    position=top,
+    justification=centering,
+    labelfont=normalfont,
+    textfont=normalfont,
+    skip=6pt
+}
+\captionsetup[figure]{
+    position=bottom,
+    justification=centering,
+    skip=6pt
+}
+
+\lstset{
+    language=Python,
+    backgroundcolor=\color{backcolour},
+    frame=tb,
+    framerule=0.5pt,
+    rulecolor=\color{bordergray},
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{keywordblue}\bfseries,
+    commentstyle=\color{codegray}\itshape,
+    numberstyle=\tiny\color{codegray},
+    numbers=left,
+    stepnumber=1,
+    breaklines=true,
+    breakatwhitespace=false,
+    linewidth=\linewidth,
+    xleftmargin=12pt,
+    tabsize=4,
+    showstringspaces=false
+}
+
+% --- Khung cơ sở lý thuyết siêu tối giản: nền trắng, chỉ 2 đường kẻ ngang đồng bộ bảng ---
+\newtcolorbox{theorybox}[2][]{
+    enhanced,
+    breakable,
+    sharp corners,
+    width=\linewidth,
+    boxsep=0pt,
+    left=0pt, right=0pt, top=5pt, bottom=5pt,
+    toptitle=4pt, bottomtitle=4pt,
+    colback=white,
+    colbacktitle=white,
+    colframe=black!85,
+    coltitle=black,
+    fonttitle=\bfseries\small,
+    boxrule=0pt,
+    toprule=0.8pt,
+    bottomrule=0.8pt,
+    titlerule=0.4pt,
+    titlerule style={black!35},
+    before skip=10pt, after skip=10pt,
+    title={#2},
+    #1
+}
+
+% --- Khung ghi chú tối giản: nền trắng, vạch dọc mảnh bên trái ---
+\newtcolorbox{notebox}[2][]{
+    enhanced,
+    breakable,
+    sharp corners,
+    width=\linewidth,
+    boxsep=0pt,
+    left=8pt, right=0pt, top=3pt, bottom=3pt,
+    toptitle=2pt, bottomtitle=2pt,
+    colback=white,
+    colbacktitle=white,
+    colframe=white,
+    coltitle=black!85,
+    fonttitle=\bfseries\small,
+    boxrule=0pt,
+    titlerule=0pt,
+    borderline west={1.2pt}{0pt}{black!45},
+    before skip=8pt, after skip=8pt,
+    title={#2},
+    #1
+}
+
+% Bỏ dấu % dòng dưới nếu muốn công thức toán màu xanh dương:
+% \everymath{\color{blue}}
+
+\usepackage{hyperref}
+\hypersetup{
+    urlcolor=black,
+    linkcolor=black,
+    citecolor=black,
+    colorlinks=true
+}
+
+% --- Header & Footer ---
+\setlength{\headheight}{36pt}
+\pagestyle{fancy}
+\fancyhead{}
+\fancyhead[L]{
+  \begin{tabular}{@{}rl@{}}
+    \begin{picture}(25,15)(0,0)
+      \put(0,-8){\includegraphics[width=8mm, height=8mm]{hcmut.png}}
+    \end{picture}&
+    \begin{tabular}{@{}l@{}}
+      {\ttfamily University of Technology}\\
+      {\ttfamily Faculty of Computer Science and Engineering}
+    \end{tabular}
+  \end{tabular}
+}
+\fancyhead[R]{\scriptsize \ttfamily CO2011-261-A01-2551896}
+\fancyfoot{}
+\fancyfoot[L]{\scriptsize \ttfamily Mathematical Modeling (CO2011) Assignment, Semester 261}
+\fancyfoot[R]{\scriptsize \ttfamily Page {\thepage}/\pageref{LastPage}}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\footrulewidth}{0.3pt}
+
+% --- Cấu hình cấp mục & khoảng cách gọn cho giới hạn <= 20 trang ---
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{2}
+\setlist[itemize]{itemsep=2pt, topsep=3pt, parsep=0pt}
+\setlist[enumerate]{itemsep=2pt, topsep=3pt, parsep=0pt}
+\makeatletter
+\newcounter{subsubsubsection}[subsubsection]
+\renewcommand\thesubsubsubsection{\thesubsubsection.\@alph\c@subsubsubsection}
+\newcommand\subsubsubsection{\@startsection{subsubsubsection}{4}{\z@}%
+                                     {-3.25ex\@plus -1ex \@minus -.2ex}%
+                                     {1.5ex \@plus .2ex}%
+                                     {\normalfont\normalsize\bfseries}}
+\newcommand*\l@subsubsubsection{\@dottedtocline{3}{10.0em}{4.1em}}
+\newcommand*{\subsubsubsectionmark}[1]{}
+\makeatother
+
+\begin{document}
+
+% ==================== TRANG BÌA ====================
+\pagenumbering{Alph}
+\newgeometry{margin=20mm}
+\begin{titlepage}
+\begin{tikzpicture}[remember picture, overlay]
+    \draw[line width = 2pt, color = black]
+        ([xshift=15mm, yshift=-15mm]current page.north west)
+        rectangle
+        ([xshift=-15mm, yshift=15mm]current page.south east);
+
+    \draw[line width = 0.8pt, color = black]
+        ([xshift=17.5mm, yshift=-17.5mm]current page.north west)
+        rectangle
+        ([xshift=-17.5mm, yshift=17.5mm]current page.south east);
+\end{tikzpicture}
+
+\begin{center}
+    {\Large
+    Vietnam National University, Ho Chi Minh City \\
+    Ho Chi Minh City University of Technology (HCMUT) \\
+    Faculty of Computer Science and Engineering\par}
+\end{center}
+
+\vspace{0.8cm}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=3.8cm]{hcmut.png}
+\end{figure}
+
+\vspace{0.6cm}
+
+\begin{center}
+\begin{minipage}{0.95\textwidth}
+    \centering
+    {\Large\bfseries MATHEMATICAL MODELING (CO2011)\par}
+    \vspace{8pt}
+    \rule{\linewidth}{0.6pt}
+    \vspace{12pt}
+
+    {\large\bfseries Semester-long Integrated Assignment\par}
+    \vspace{10pt}
+
+    \resizebox{0.96\linewidth}{!}{\bfseries INVIGILATOR ASSIGNMENT PROBLEM}\par
+    \vspace{10pt}
+
+    {\small\textit{Logic $\Rightarrow$ Linear \& Integer Programming $\Rightarrow$ Automata $\Rightarrow$ Dynamical Systems $\Rightarrow$ Web App}\par}
+    \vspace{10pt}
+    \rule{\linewidth}{0.6pt}
+\end{minipage}
+\end{center}
+
+\vspace{1.0cm}
+
+\begin{center}
+\begin{tabular}{r l l}
+    \textbf{Instructor(s):} & Phạm An Vinh, CSE-HCMUT & \\
+    \textbf{Class:}         & A01 & \\
+    \textbf{Team ID:}       & \texttt{CO2011-261-A01-2551896} & \\
+    \textbf{Team Seed:}     & \texttt{1358677812} \; ($\lambda = (0.84, 1.90, 1.97)$) & \\
+    \textbf{Students:}      & Võ Nguyễn Vĩ Nguyên    & - 2551913 \\
+                            & Chu Ngọc Phúc Thành    & - 2551922 \\
+                            & Đinh Hoàng Quang Vinh  & - 2551931 \\
+                            & Đặng Nguyễn Thiên Phúc & - 2551919 \\
+                            & Nguyễn Quốc Hùng       & - 2551896 \\
+\end{tabular}
+\end{center}
+
+\vfill
+
+\begin{center}
+    {\footnotesize Ho Chi Minh City, Semester 261 (2026--2027)}
+\end{center}
+\end{titlepage}
+\restoregeometry
+
+% ========================================
+\pagenumbering{roman}
+\thispagestyle{fancy}
+\tableofcontents
+\newpage
+
+% ==================== NỘI DUNG CHÍNH (<= 20 TRANG) ====================
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\input{section_BTL/de_bai}
+\newpage
+
+\input{chapter 1/module1}
+\newpage
+
+\input{chapter 2/module2-formulation}
+\input{chapter 2/module2-results}
+\newpage
+
+\input{chapter 3/module3}
+\newpage
+
+\input{chapter 4/module4}
+\newpage
+
+\input{chapter 5/module5}
+\input{chapter 6/conclusion}
+
+% ==================== PHỤ LỤC ====================
+\newpage
+\appendix
+\input{appendix/appendices}
+
+\end{document}

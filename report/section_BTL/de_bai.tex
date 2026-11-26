@@ -1,0 +1,90 @@
+\section{Tổng quan Bài toán và Kiến trúc Hệ thống}
+\label{sec:overview}
+
+\subsection{Bối cảnh và Phát biểu Bài toán Phân công Cán bộ Coi thi (IAP)}
+Mỗi học kỳ, Khoa Khoa học và Kỹ thuật Máy tính (CSE--HCMUT) phải tổ chức hàng trăm lượt coi thi tại hai cơ sở cách xa nhau: Cơ sở 1 (Lý Thường Kiệt -- \texttt{CS1}) và Cơ sở 2 (Dĩ An -- \texttt{CS2}). Bài toán \textbf{Invigilator Assignment Problem (IAP)} yêu cầu phân công đủ số lượng cán bộ coi thi cho từng ca thi trong khi vừa bảo đảm tuyệt đối các quy định bắt buộc (\textit{hard constraints}: đủ định ngạch, không phân công khi bận, không trùng giờ), vừa tối ưu sự công bằng tải trọng và các ràng buộc mềm (\textit{soft constraints}: nguyện vọng cơ sở, giới hạn mệt mỏi, hạn chế di chuyển liên cơ sở) \cite{hanum2015,burke2004}. Về bản chất tổ hợp, IAP là một bài toán thỏa mãn ràng buộc và tối ưu rời rạc thuộc lớp \textbf{NP-hard} \cite{nemhauser1999}.
+
+Bộ dữ liệu thực tế đã ẩn danh (\texttt{data/input.csv}) ghi nhận lịch coi thi gốc (\textit{Baseline}) gồm các thông số:
+\begin{itemize}
+    \item \textbf{Tập cán bộ ($N = 73$):} Gồm $73$ mã cán bộ (\texttt{CB001}--\texttt{CB073}). Theo thiết kế thống nhất của toàn đồ án (\texttt{m1\_\allowbreak logic/\allowbreak data\_\allowbreak loader.py}), toàn bộ vai trò (\texttt{CBCT}, \texttt{Thư ký}, \texttt{Trưởng HĐ}) được gộp chung thành lực lượng coi thi đồng nhất, không áp đặt ràng buộc phân hạng riêng.
+    \item \textbf{Tập ca thi ($M = 83$) trên $65$ mã khung giờ:} Mỗi ca thi $j \in J$ là một cặp duy nhất $(\text{MS Ca thi}, \text{Cơ sở})$, gồm $45$ ca tại \texttt{CS1} và $38$ ca tại \texttt{CS2}, diễn ra trong $23$ ngày thi thuộc khung lịch liên tục $T = 27$ ngày từ 18/05/2026 đến 13/06/2026.
+    \item \textbf{Tổng định ngạch và lịch gốc:} Tổng nhu cầu nhân sự toàn kỳ là $\sum_{j \in J} r_j = 769$ lượt phân công (ca lớn nhất cần $32$ cán bộ), với $18$ cặp ca thi trùng giờ (toàn bộ là cùng mã ca diễn ra đồng thời tại \texttt{CS1} và \texttt{CS2}; các ca tiếp giáp đầu--cuối như 07:00--09:30 và 09:30--12:00 không tính là trùng). Lịch gốc thủ công (\texttt{Baseline}) mất cân bằng nghiêm trọng với tải đỉnh $\text{max\_load} = 19$, $\text{min\_load} = 3$ ($\text{spread} = 16$, $L_1 = 115{,}397$).
+\end{itemize}
+
+\subsection{Tính Tái lập theo Seed và Các Giả định Mô phỏng}
+Toàn bộ kết quả thực nghiệm của nhóm được định danh duy nhất bằng \texttt{Team ID = CO2011-\allowbreak 261-\allowbreak A01-\allowbreak 2551896}. Hàm băm BLAKE2 trong \texttt{tools/\allowbreak make\_\allowbreak seed.py} sinh tất định mã seed \texttt{1358677812} (\texttt{data/seed.txt}) và bộ ba trọng số phạt mềm $\lambda = (0{,}84;\, 1{,}90;\, 1{,}97)$. Mọi bảng số liệu và hình ảnh trong báo cáo được tái tạo tự động bằng lệnh duy nhất: \texttt{python run\_all.py --seed \$(cat data/seed.txt)}.
+
+Tuân thủ nguyên tắc \textit{``fit, don't fabricate''}, mọi cấu phần dữ liệu thực không cung cấp trực tiếp đều được mô phỏng có kiểm soát và công bố minh bạch trong Bảng~\ref{tab:assumptions}.
+
+\begin{table}[htbp]
+\centering
+\caption{Tổng hợp các giả định mô phỏng từ dữ liệu thực với \texttt{seed = 1358677812}.}
+\label{tab:assumptions}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} >{\raggedright\arraybackslash}p{3.1cm} >{\raggedright\arraybackslash}p{5.6cm} L @{}}
+\toprule
+\textbf{Thành phần giả định} & \textbf{Quy tắc sinh / hiệu chuẩn} & \textbf{Ý nghĩa và giới hạn thực tế} \\
+\midrule
+Lịch khả dụng $A$ (Module 1--2) & Giữ nguyên $769$ cặp $(\text{người}, \text{mã ca})$ từng coi ở Baseline; mỗi cặp chưa xuất hiện được mở với xác suất $p = 0{,}30$ dùng \texttt{Random(seed)} (chia sẻ theo mã ca giữa hai cơ sở). & Tạo $1{,}182$ cặp ca mới $\Rightarrow |A| = 2{,}593$ cặp $(\text{người}, \text{ca})$ khả dụng trên $6{,}059$. Sự vắng mặt trong lịch gốc không đồng nghĩa nghỉ phép thực tế. \\
+Nguyện vọng cơ sở (Module 2) & $P(\text{BAL}) = 1/3$; $2/3$ còn lại chia theo tỷ lệ làm việc lịch sử tại \texttt{CS1}/\texttt{CS2} của từng người (\texttt{simulated\_\allowbreak preferences.csv}). & Thu được $16$ \texttt{CS1}, $29$ \texttt{CS2}, $28$ \texttt{BAL}. Trọng số phạt: $\lambda_{\text{LOC}} = 0{,}84$, $\lambda_{\text{FAT}} = 1{,}90$, $\lambda_{\text{TRV}} = 1{,}97$. \\
+Ca tối \texttt{N} và ngày 2 ca (Module 3) & Khung giờ 18g15 được gán nhãn ca tối \texttt{N}; $169$ cặp $(\text{người}, \text{ngày})$ làm $2$ ca khác buổi được nén về $1$ ký hiệu theo ưu tiên $\texttt{N} > \texttt{A} > \texttt{M}$. & Bảo toàn bảng chữ cái $\Sigma = \{\texttt{M}, \texttt{A}, \texttt{N}, \texttt{-}\}$; hệ quả là $168/169$ ngày hai ca (\texttt{M+A}) được ghi nhận là \texttt{A} khi kiểm tra R4. \\
+Proxy mệt mỏi $F_n$ (Module 4) & Hồi quy OLS trễ bậc 1 trên suất tuần lịch sử cho $a = 0{,}270634$ ($R^2 = 0{,}0619$); đặt $r = 0$ và chuẩn hóa $b = 1 - a = 0{,}729366$. & $F_n$ là đại lượng đại diện theo đơn vị tải tuần (\textit{workload proxy}), không phải chỉ số sinh lý hay giới hạn y tế. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Kiến trúc Tích hợp Bốn Học phần Lý thuyết CO2011}
+Đồ án kết nối bốn học phần lý thuyết của môn \textit{Mô hình hóa Toán học (CO2011)} trên cùng một bài toán thực tế xuyên suốt (Hình~\ref{fig:pipeline_arch}), đồng thời ánh xạ chặt chẽ từng khái niệm trong bộ slide giảng dạy (Bảng~\ref{tab:slide_mapping}).
+
+\begin{figure}[htbp]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    node distance=0.55cm and 0.45cm,
+    box/.style={rectangle, draw=black!80, fill=white, line width=0.6pt, text width=2.45cm, minimum height=1.25cm, align=center, font=\scriptsize},
+    arr/.style={->, >=Stealth, semithick, color=black!80}
+]
+\node[box, fill=black!4] (data) {\textbf{Dữ liệu \& Seed}\\ $N=73, M=83$\\ $|A|=2{,}593$};
+\node[box, right=of data] (m1) {\textbf{Module 1: Logic}\\ FOL $\to$ CNF\\ SAT \& UNSAT Core};
+\node[box, right=of m1] (m2) {\textbf{Module 2: ILP}\\ Tối ưu 2 giai đoạn\\ $t^* = 11$, $L_1$, Soft};
+\node[box, right=of m2] (m3) {\textbf{Module 3: DFA}\\ R1--R3 (15 tr.thái)\\ Flow ILP ($T=27$)};
+\node[box, right=of m3] (m4) {\textbf{Module 4: Động lực}\\ Hướng B: $F_{n+1}$\\ Ổn định \& Ngưỡng $H$};
+
+\draw[arr] (data) -- (m1);
+\draw[arr] (m1) -- node[above, font=\tiny]{Bridge} (m2);
+\draw[arr] (m2) -- node[above, font=\tiny]{$x_{ij}$} (m3);
+\draw[arr] (m3) -- node[above, font=\tiny]{$\ell, L_k$} (m4);
+
+\node[rectangle, draw=black!80, fill=black!3, line width=0.6pt, below=0.55cm of m3, text width=11.8cm, align=center, font=\scriptsize, minimum height=0.75cm] (m5) {\textbf{Module 5: Ứng dụng Web Streamlit (\texttt{app/app.py})} --- Tích hợp kiểm tra SAT, lập lịch ILP, kiểm định DFA R1--R3 và mô phỏng quỹ đạo công bằng trên cùng giao diện tương tác};
+
+\draw[arr] (m1.south) |- (m5.west);
+\draw[arr] (m2.south) -- (m2.south |- m5.north);
+\draw[arr] (m3.south) -- (m5.north);
+\draw[arr] (m4.south) |- (m5.east);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{Kiến trúc luồng dữ liệu tích hợp năm module của hệ thống IAP.}
+\label{fig:pipeline_arch}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{Ánh xạ trực tiếp từ giáo trình CO2011 sang bốn module thuật toán.}
+\label{tab:slide_mapping}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} >{\raggedright\arraybackslash}p{3.2cm} >{\raggedright\arraybackslash}p{5.6cm} L @{}}
+\toprule
+\textbf{Module \& Slide CO2011} & \textbf{Khái niệm lý thuyết nền tảng} & \textbf{Hiện thực hóa trong mã nguồn} \\
+\midrule
+M1 · Ch.1 Logic & Ngôn ngữ mệnh đề, định giá $v_M$, CNF (\texttt{Def. 1.11}), thỏa được (\texttt{Def. 1.7}), logic vị từ ($\forall, \exists$). & Đặc tả H1--H3; mã hóa đếm \texttt{seqcounter}; \texttt{Minisat22} tìm nghiệm hoặc MUS; cầu nối Logic-to-LP. \\
+M2 · Ch.3 ILP & Miền lồi (\texttt{Thm. 3.1}), Định lý cơ bản LP (\texttt{Thm. 3.3}), thư giãn LP \& Branch-and-Bound (\texttt{Sec. 3.9}). & Mô hình thưa $|A|=2{,}593$; H2 theo clique cực đại; tối ưu 2 giai đoạn ($t^*$, $L_1$ + \texttt{DEVC}, phạt mềm) với CBC. \\
+M3 · Ch.4 Automata & DFA 5-bộ (\texttt{Def. 2.10}), tích giao ngôn ngữ, tối giản Myhill--Nerode (\texttt{Alg. 2.2--2.3}), Pumping Lemma. & DFA R1--R4 trên $\Sigma=\{\texttt{M},\texttt{A},\texttt{N},\texttt{-}\}$; rút gọn $259 \to 15$ trạng thái; đồ thị phân tầng flow ILP; chứng minh $\#M=\#A$. \\
+M4 · Ch.5/6 Dynamics & Hệ sai phân tuyến tính, điểm cân bằng (\texttt{Def. 5.1}, \texttt{Thm. 5.2--5.3}), ma trận Jacobi và bán kính phổ. & Hướng B: vector mệt mỏi $F_{n+1}=aF_n+b\ell-r\rho$, kiểm chứng $|a|<1$, co giãn $\operatorname{spread}(F_n)\to 0$ và ngưỡng mềm $H$. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\FloatBarrier

@@ -1,0 +1,213 @@
+\section[Module 3: Ô-tô-mát và Ngôn ngữ Hình thức (Automata \& Formal Languages)]{Module 3: Ô-tô-mát và Ngôn ngữ Hình thức\protect\\(Automata \& Formal Languages)}
+\label{sec:m3}
+
+\subsection{Cơ sở Lý thuyết Ô-tô-mát Hữu hạn và Ngôn ngữ Chính quy}
+Theo chương 4 giáo trình \textit{Automata Theory} (CO2011) \cite{slides_automata,linz2017,hopcroft2006}, Module 2 mới chỉ xét ràng buộc trong từng ngày rời rạc mà chưa kiểm soát \textit{thứ tự thời gian} giữa các ngày liên tiếp. Lý thuyết Ngôn ngữ Hình thức và Ô-tô-mát cung cấp công cụ toán học chặt chẽ để biểu diễn các luật tuần tự:
+
+\begin{theorybox}{Cơ sở Lý thuyết Ô-tô-mát Hữu hạn (CO2011 Slides Ch.4)}
+\begin{itemize}
+    \item \textbf{Bảng chữ cái, Chuỗi và Ngôn ngữ:} Cho bảng chữ cái hữu hạn khác rỗng $\Sigma$. Chuỗi (\textit{word}) là dãy hữu hạn các ký hiệu thuộc $\Sigma$; chuỗi rỗng ký hiệu $\varepsilon$; tập mọi chuỗi là $\Sigma^*$. Một ngôn ngữ $L \subseteq \Sigma^*$ là \textit{ngôn ngữ chính quy} (regular language) nếu được sinh bởi biểu thức chính quy (\texttt{Def. 2.3--2.4}) hoặc được đoán nhận bởi một ô-tô-mát hữu hạn.
+    \item \textbf{Ô-tô-mát Hữu hạn Đơn định (DFA, \texttt{Def. 2.10--2.11}):} Một DFA là bộ $5$ thành phần $M = (Q, \Sigma, q_0, \delta, F)$, với tập trạng thái hữu hạn $Q$, trạng thái đầu $q_0 \in Q$, hàm chuyển toàn phần $\delta: Q \times \Sigma \to Q$, và tập trạng thái chấp nhận $F \subseteq Q$. Với hàm chuyển mở rộng $\hat{\delta}(q_0, w)$, ngôn ngữ đoán nhận là $L(M) = \{ w \in \Sigma^* : \hat{\delta}(q_0, w) \in F \}$. DFA tương đương về sức mạnh biểu diễn với NFA (\texttt{Thm. 2.2}, \texttt{Alg. 2.1}).
+    \item \textbf{Tích giao và Tối giản Myhill--Nerode (\texttt{Prop. 2.3}, \texttt{Alg. 2.2--2.3}):} Lớp ngôn ngữ chính quy đóng dưới phép giao nhờ xây dựng máy tích $\mathcal{P}$ trên $Q_1 \times \dots \times Q_k$. Hai trạng thái $p, q$ không thể phân biệt nếu $\forall u \in \Sigma^*, \; \hat{\delta}(p, u) \in F \iff \hat{\delta}(q, u) \in F$. Thuật toán tinh chỉnh phân hoạch (\texttt{Alg. 2.2--2.3}) khởi tạo từ $\{F, Q \setminus F\}$ và tách dần cho tới khi hội tụ, cho DFA tối giản duy nhất (đến đẳng cấu) theo định lý Myhill--Nerode.
+    \item \textbf{Bổ đề Bơm (Pumping Lemma):} Nếu $L$ chính quy thì tồn tại độ dài bơm $p \ge 1$ sao cho mọi $s \in L$ có $|s| \ge p$ đều tách được thành $s = xyz$ thỏa $|xy| \le p$, $|y| \ge 1$ và $xy^i z \in L$ với mọi $i \ge 0$. Đây là công cụ chuẩn để chứng minh một ngôn ngữ không chính quy.
+\end{itemize}
+\end{theorybox}
+
+\subsection{Mã hóa Lịch dạng Chuỗi và Xây dựng các DFA Quy tắc Thời gian (Req 3.1)}
+\label{sec:m3_dfa}
+
+Trong \texttt{m3\_\allowbreak automata/\allowbreak encode\_\allowbreak strings.py}, lịch công tác của mỗi cán bộ $i \in I$ trên $T = 27$ ngày liên tục (18/05/2026 -- 13/06/2026) được mã hóa thành một chuỗi $w^{(i)} \in \Sigma^{27}$ trên bảng chữ cái cố định $\Sigma = \{\texttt{M}, \texttt{A}, \texttt{N}, \texttt{-}\}$:
+\begin{itemize}
+    \item \texttt{M} (Sáng): 07g00, 09g30; \quad \texttt{A} (Chiều): 13g00, 15g30; \quad \texttt{N} (Tối): 18g15; \quad \texttt{-} (Nghỉ): không có ca thi.
+    \item \textbf{Xử lý ngày $2$ ca khác buổi:} Dữ liệu gốc có $169$ cặp $(\text{người}, \text{ngày})$ làm $2$ buổi ($168$ cặp \texttt{M+A}, $1$ cặp \texttt{A+N}). Nhằm giữ nguyên bảng chữ cái $\Sigma$ mà không gây vô nghiệm khi cấm ngày $2$ ca, hệ thống nén mỗi ngày về $1$ ký hiệu theo thứ tự ưu tiên mệt mỏi $\texttt{N} > \texttt{A} > \texttt{M}$ (do đó \texttt{M+A} $\mapsto \texttt{A}$, \texttt{A+N} $\mapsto \texttt{N}$).
+\end{itemize}
+
+Đặt hàm chỉ thị ngày làm việc $b(a) = 1$ nếu $a \in W = \{\texttt{M}, \texttt{A}, \texttt{N}\}$ và $b(\texttt{-}) = 0$. Nhóm xây dựng $3$ DFA hoàn chỉnh (có trạng thái bẫy \texttt{dead} tự lặp trên mọi ký hiệu) trong \texttt{m3\_\allowbreak automata/\allowbreak rules.py} và xuất chuẩn JSON (\texttt{dfa.py}):
+
+\begin{enumerate}
+    \item \textbf{R1 -- Không quá $2$ ngày làm việc liên tiếp (\texttt{dfa\_\allowbreak max2\_\allowbreak consecutive.json}):}
+    \begin{equation*}
+        L_1 = \Big\{ w \in \Sigma^* : \forall \, 3 \le t \le |w|, \; \sum_{j=t-2}^{t} b(w_j) \le 2 \Big\}.
+    \end{equation*}
+    Tập trạng thái $Q_1 = \{\texttt{run0},\allowbreak \texttt{run1},\allowbreak \texttt{run2},\allowbreak \texttt{dead}\}$ ghi nhận chuỗi ngày làm việc liên tiếp hiện tại ($4$ trạng thái); $F_1 = Q_1 \setminus \{\texttt{dead}\}$ (Hình~\ref{fig:dfa_r1_r2}a).
+
+    \item \textbf{R2 -- Sau ca tối phải có ít nhất $1$ ngày nghỉ (\texttt{dfa\_\allowbreak night\_\allowbreak then\_\allowbreak rest.json}):}
+    \begin{equation*}
+        L_2 = \{ w \in \Sigma^* : \forall \, 1 \le t < |w|, \; w_t = \texttt{N} \Rightarrow w_{t+1} = \texttt{-} \}.
+    \end{equation*}
+    Tập trạng thái $Q_2 = \{\texttt{free},\allowbreak \texttt{after\_night},\allowbreak \texttt{dead}\}$ ($3$ trạng thái); tập chấp nhận $F_2 = \{\texttt{free},\allowbreak \texttt{after\_night}\}$ (Hình~\ref{fig:dfa_r1_r2}b).
+
+    \item \textbf{R3 -- Tối đa $4$ ngày làm việc trong mọi cửa sổ $7$ ngày trượt (\texttt{dfa\_\allowbreak max4\_\allowbreak in\_\allowbreak 7days.json}):}
+    \begin{equation*}
+        L_3 = \Big\{ w \in \Sigma^* : \forall \, 1 \le t \le |w|, \; \sum_{j=\max(1, t-6)}^{t} b(w_j) \le 4 \Big\}.
+    \end{equation*}
+    Mỗi trạng thái sống là vector nhị phân $6$-bit $h = h_1\dots h_6 \in H = \{h \in \{0,1\}^6 : |h|_1 \le 4\}$ nhớ lịch sử $6$ ngày gần nhất (khởi đầu $q_0 = \texttt{w000000}$). Khi đọc $a \in \Sigma$, nếu $|h|_1 + b(a) > 4$ thì chuyển vào \texttt{dead}; ngược lại dịch trái thành $h_2\dots h_6 b(a)$. Tổng số trạng thái đạt được là $\sum_{r=0}^4 \binom{6}{r} + 1 = 58$.
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    >=Stealth, node distance=1.8cm,
+    every state/.style={semithick, draw=black!85, fill=white, minimum size=0.95cm, inner sep=1pt, font=\scriptsize},
+    accepting/.style={double, double distance=1.5pt},
+    dead/.style={fill=black!6, draw=black!75, dashed}
+]
+% --- R1 ---
+\node[state, initial, initial text={}, accepting] (r0) {\texttt{run0}};
+\node[state, accepting, right=of r0] (r1) {\texttt{run1}};
+\node[state, accepting, right=of r1] (r2) {\texttt{run2}};
+\node[state, dead, right=of r2] (rd) {\texttt{dead}};
+
+\path[->, draw=black!80]
+    (r0) edge[loop above] node[font=\scriptsize]{\texttt{-}} (r0)
+         edge[bend left=14] node[above, font=\scriptsize]{$W$} (r1)
+    (r1) edge[bend left=18] node[below, font=\scriptsize]{\texttt{-}} (r0)
+         edge[bend left=14] node[above, font=\scriptsize]{$W$} (r2)
+    (r2) edge[bend left=30] node[below, font=\scriptsize]{\texttt{-}} (r0)
+         edge node[above, font=\scriptsize]{$W$} (rd)
+    (rd) edge[loop above] node[font=\scriptsize]{$\Sigma$} (rd);
+\node[below=0.85cm of r1, xshift=0.9cm, font=\scriptsize\bfseries] {(a) DFA cho R1 ($W = \{\texttt{M},\texttt{A},\texttt{N}\}$)};
+
+% --- R2 ---
+\node[state, initial, initial text={}, accepting, below=2.3cm of r0, xshift=0.6cm] (f) {\texttt{free}};
+\node[state, accepting, right=2.1cm of f] (an) {\texttt{after\_N}};
+\node[state, dead, right=2.1cm of an] (d2) {\texttt{dead}};
+
+\path[->, draw=black!80]
+    (f) edge[loop above] node[font=\scriptsize]{\texttt{M,A,-}} (f)
+        edge[bend left=16] node[above, font=\scriptsize]{\texttt{N}} (an)
+    (an) edge[bend left=16] node[below, font=\scriptsize]{\texttt{-}} (f)
+         edge node[above, font=\scriptsize]{\texttt{M,A,N}} (d2)
+    (d2) edge[loop above] node[font=\scriptsize]{$\Sigma$} (d2);
+\node[below=0.85cm of an, font=\scriptsize\bfseries] {(b) DFA cho R2 (nghỉ ngay sau ca tối \texttt{N})};
+\end{tikzpicture}
+\end{adjustbox}
+\caption{Biểu đồ chuyển trạng thái DFA hoàn chỉnh cho hai quy tắc R1 và R2.}
+\label{fig:dfa_r1_r2}
+\end{figure}
+
+\subsection{Tích Ô-tô-mát và Tối giản hóa theo Myhill--Nerode (Req 3.2)}
+\label{sec:m3_min}
+
+Hàm \texttt{product()} và \texttt{minimize()} trong \texttt{m3\_\allowbreak automata/\allowbreak product\_\allowbreak min.py} thực hiện giao tuần tự các DFA hoàn chỉnh (chỉ giữ trạng thái tới được từ trạng thái đầu) rồi tinh chỉnh phân hoạch theo Myhill--Nerode. Chẳng hạn, tích $R_1 \times R_2$ ban đầu có $11$ trạng thái tới được ($5$ trạng thái chấp nhận và $6$ trạng thái không chấp nhận chứa thành phần \texttt{dead}); qua $3$ vòng tách phân hoạch, các trạng thái $\{\texttt{run1|after\_night},\allowbreak \texttt{run2|free},\allowbreak \texttt{run2|after\_night}\}$ gộp chung thành một lớp tương đương (cùng đòi hỏi ký hiệu tiếp theo bắt buộc là \texttt{-}), thu gọn còn đúng $4$ trạng thái tối giản.
+
+Tương tự, với R3 ($58$ trạng thái), các cấu hình như \texttt{w111000} và \texttt{w000000} có tương lai hoàn toàn đồng nhất (ba số $1$ cũ sẽ trôi ra khỏi cửa sổ $7$ ngày trước khi có thể cộng thêm ba ngày làm việc mới vượt ngưỡng $4$), nên R3 rút gọn xuống $36$ trạng thái. Tổng hợp phép đo từ \texttt{product\_min.py} và \texttt{minimization.json} được trình bày trong Bảng~\ref{tab:m3_state_counts}.
+
+\begin{table}[htbp]
+\centering
+\caption{Thống kê số trạng thái trước và sau tối giản Myhill--Nerode (bao gồm trạng thái \texttt{dead}).}
+\label{tab:m3_state_counts}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} >{\raggedright\arraybackslash}p{4.9cm} r r L @{}}
+\toprule
+\textbf{Ô-tô-mát} & \textbf{Tới được} & \textbf{Tối giản} & \textbf{Nhận xét cấu trúc} \\
+\midrule
+R1 (\texttt{max2\_\allowbreak consecutive}) & $4$ & $4$ & Tối giản sẵn (\texttt{run0}, \texttt{run1}, \texttt{run2}, \texttt{dead}) \\
+R2 (\texttt{night\_\allowbreak then\_\allowbreak rest}) & $3$ & $3$ & Tối giản sẵn (\texttt{free}, \texttt{after\_night}, \texttt{dead}) \\
+R3 (\texttt{max4\_\allowbreak in\_\allowbreak 7days}) & $58$ & $36$ & Các bit cũ không ảnh hưởng tương lai được gộp lớp \\
+R4 ($|\#M - \#A| \le 3$, $c=3$) & $8$ & $8$ & Bộ đếm bị chặn $-3 \dots +3$ cộng trạng thái bẫy \\
+$R_1 \times R_2$ & $11$ & $4$ & Gộp các trạng thái buộc nghỉ ngày kế tiếp \\
+$\mathbf{R_1 \times R_2 \times R_3}$ & $\mathbf{259}$ & $\mathbf{15}$ & \textbf{Đưa vào Flow ILP (giảm $17{,}3\times$ kích thước)} \\
+$R_1 \times R_2 \times R_3 \times R_4$ & $2{,}072$ & $99$ & Quá lớn cho CBC trong giới hạn $150\text{ s}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Phân rã Ràng buộc Chính quy sang ILP và Giải lại Mô hình (Req 3.3)}
+\label{sec:m3_ilp}
+
+Sử dụng DFA tối giản $\mathcal{A}^* = R_1 \times R_2 \times R_3$ ($15$ trạng thái), \texttt{m3\_\allowbreak automata/\allowbreak regular\_\allowbreak to\_\allowbreak ilp.py} triển khai ràng buộc chính quy (\textit{regular global constraint} \cite{pesant2004,cote2011}) bằng đồ thị phân tầng $T = 27$ ngày (Hình~\ref{fig:layered_graph}).
+
+\paragraph*{Đồ thị phân tầng và phương trình bảo toàn luồng:}
+Với mỗi cán bộ $i$, ta trải các đỉnh $(t, q)$ cho $t = 0, \dots, T$ và các cung chuyển $(t, q) \xrightarrow{a} (t+1, \delta(q, a))$ chỉ giữ lại các cung nằm trên đường đi hợp lệ từ $(0, q_0)$ tới trạng thái chấp nhận ở tầng $T$ (cắt bỏ mọi cung vào \texttt{dead}). Đặt biến luồng liên tục $y_{i, t, q, a} \in [0, 1]$ trên mỗi cung giữ lại và biến ngày nhị phân $z_{i, t, a} \in \{0, 1\}$:
+\begin{equation}
+\begin{aligned}
+    &\text{\texttt{SRC}: } \sum_a y_{i, 0, q_0, a} = 1, \qquad
+    \text{\texttt{LINK}: } \sum_q y_{i, t, q, a} = z_{i, t, a}, \\
+    &\text{\texttt{FLOW}: } \sum_a y_{i, t, q, a} = \sum_{(p, a): \delta(p, a) = q} y_{i, t-1, p, a}.
+\end{aligned}
+\end{equation}
+Khi $z_{i, t, a} \in \{0, 1\}$, định lý bảo toàn luồng (chứng minh quy nạp ở Phụ lục~\ref{app:flow_proof}) bảo đảm $1$ đơn vị luồng buộc phải đi theo đúng $1$ đường đi đơn trị nhận giá trị $0/1$ kết thúc tại $F$. Để nối với biến phân công $x_{ij}$ của Module 2, ta định nghĩa biến chỉ thị buổi $u_{i, t, a}$ ($a \in \{\texttt{M}, \texttt{A}, \texttt{N}\}$) thỏa $u_{i, t, a} \ge x_{ij}$ và $u_{i, t, a} \le \sum_{j \in J_{t,a}(i)} x_{ij}$, rồi chọn đúng $1$ ký hiệu ngày $z_{i, t, a}$ theo ưu tiên $\texttt{N} > \texttt{A} > \texttt{M}$:
+\begin{equation}
+\begin{aligned}
+    z_{i, t, a} &\le u_{i, t, a}, \qquad z_{i, t, a} \le 1 - u_{i, t, h} \; (\forall h \succ a), \\
+    z_{i, t, a} &\ge u_{i, t, a} - \sum_{h \succ a} u_{i, t, h},
+\end{aligned}
+\end{equation}
+và $z_{i, t, \texttt{-}} = 1 - \sum_{a \in \{\texttt{M},\texttt{A},\texttt{N}\}} z_{i, t, a}$. Trong số $66{,}576$ cung lý thuyết, phép cắt tỉa chỉ giữ lại $12{,}979$ biến luồng $y_{i,t,q,a}$ (tổng cộng thêm $16{,}223$ biến và $18{,}323$ ràng buộc mỗi giai đoạn).
+
+\begin{figure}[htbp]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[
+    >=Stealth,
+    node distance=0.42cm and 1.35cm,
+    vtx/.style={circle, draw=black!80, fill=white, minimum size=0.60cm, inner sep=0pt, font=\tiny},
+    acc/.style={vtx, double, fill=black!5, draw=black},
+    edg/.style={->, semithick, color=black!75}
+]
+\node[vtx] (00) {\texttt{r0}};
+\node[vtx, right=of 00] (10) {\texttt{r0}};
+\node[vtx, below=of 10] (11) {\texttt{r1}};
+\node[vtx, right=of 10] (20) {\texttt{r0}};
+\node[vtx, below=of 20] (21) {\texttt{r1}};
+\node[vtx, below=of 21] (22) {\texttt{r2}};
+\node[acc, right=of 20] (30) {\texttt{r0}};
+\node[acc, below=of 30] (31) {\texttt{r1}};
+\node[acc, below=of 31] (32) {\texttt{r2}};
+
+\foreach \t in {0,1,2,3} {
+    \node[above=0.25cm of \t0, font=\tiny\bfseries] {$t=\t$};
+}
+
+\draw[edg] (00) -- node[above, font=\tiny]{\texttt{-}} (10);
+\draw[edg] (00) -- node[below left, font=\tiny]{$W$} (11);
+\draw[edg] (10) -- node[above, font=\tiny]{\texttt{-}} (20);
+\draw[edg] (10) -- node[above right, font=\tiny]{$W$} (21);
+\draw[edg] (11) -- node[below, font=\tiny]{\texttt{-}} (20);
+\draw[edg] (11) -- node[below left, font=\tiny]{$W$} (22);
+\draw[edg] (20) -- node[above, font=\tiny]{\texttt{-}} (30);
+\draw[edg] (20) -- (31);
+\draw[edg] (21) -- (30);
+\draw[edg] (21) -- node[above right, font=\tiny]{$W$} (32);
+\draw[edg] (22) -- node[below, font=\tiny]{\texttt{-}} (30);
+\end{tikzpicture}
+\end{adjustbox}
+\caption{Đồ thị phân tầng minh họa cho DFA R1 ($T = 3$ ngày): mọi cung vào \texttt{dead} từ \texttt{r2} trên $W$ đều bị loại bỏ.}
+\label{fig:layered_graph}
+\end{figure}
+
+\paragraph*{Kết quả giải lại mô hình và kiểm chứng:}
+Bảng~\ref{tab:m3_ilp_cmp} cho thấy việc thêm $R_1 \times R_2 \times R_3$ giữ nguyên tải đỉnh tối ưu $t^* = 11$ và độ công bằng $L_1 = 36{,}329$, xóa sạch toàn bộ vi phạm thời gian từ $44/6/14$ (ở M2 thuần) xuống $0/0/0$ ($73/73$ cán bộ đạt chuẩn), chỉ phải đánh đổi thêm $8$ lượt trái nguyện vọng cơ sở ($\text{LOC}$ $28 \to 36$, làm hàm mục tiêu tăng $8 \times 0{,}84 = 6{,}72$). Thử nghiệm chéo bằng $16$ bài toán nhỏ vét cạn ($T=7$) cho độ lệch bằng $0$, và phép thử nới $z_{i,t,a} \in [0,1]$ liên tục vẫn đạt cùng giá trị tối ưu $66{,}569$.
+
+\begin{table}[htbp]
+\centering
+\caption{Hiệu quả áp đặt ràng buộc thời gian R1--R3 vào mô hình ILP của Module 2.}
+\label{tab:m3_ilp_cmp}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} L r r r r c c r @{}}
+\toprule
+\textbf{Lịch phân công} & \makecell[br]{\textbf{Max}\\\textbf{load}} & \textbf{$L_1$} & \textbf{LOC} & \makecell[br]{\textbf{Stage-2}\\\textbf{Obj}} & \makecell[bc]{\textbf{Vi phạm}\\\textbf{R1 / R2 / R3}} & \makecell[bc]{\textbf{Đạt}\\\textbf{3 luật}} & \makecell[br]{\textbf{Thời}\\\textbf{gian}} \\
+\midrule
+Baseline (Lịch gốc) & $19$ & $115{,}397$ & $162$ & $264{,}777$ & $28 \;/\; 5 \;/\; 3$ & $41/73$ & --- \\
+M2 Optimal & $11$ & $36{,}329$ & $28$ & $59{,}849$ & $44 \;/\; 6 \;/\; 14$ & $24/73$ & $\approx 0{,}3\text{ s}$ \\
+\textbf{M2 + R1$\times$R2$\times$R3} & $\mathbf{11}$ & $\mathbf{36{,}329}$ & $\mathbf{36}$ & $\mathbf{66{,}569}$ & $\mathbf{0 \;/\; 0 \;/\; 0}$ & $\mathbf{73/73}$ & $\approx 13\text{ s}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Ranh giới Bộ nhớ Hữu hạn: Chính quy vs. Phi chính quy (Req 3.4)}
+\label{sec:m3_pumping}
+
+Xét cân bằng giữa số ngày coi sáng ($\#_M$) và coi chiều ($\#_A$) với độ lệch $d(w) = \#_M(w) - \#_A(w)$:
+\begin{itemize}
+    \item \textbf{(a) Quy tắc bị chặn R4 ($L_c = \{w : |d(u)| \le c \text{ với mọi tiền tố } u\}$) là Chính quy:} Chỉ cần lưu $d(u) \in \{-c, \dots, +c\}$ cùng trạng thái bẫy \texttt{dead}, cho DFA hoàn chỉnh tối giản gồm đúng $2c + 2$ trạng thái ($8$ trạng thái với $c = 3$, lưu trong \texttt{extra/dfa\_R4.json}). Trên $73$ chuỗi của \texttt{Baseline}, R4 bác bỏ $20$ người theo luật tiền tố và $19$ người theo luật cuối kỳ (riêng \texttt{CB020} đạt $d=4$ ở ngày $17$ rồi kết thúc ở $d=1$).
+    \item \textbf{(b) Cân bằng chính xác $L_= = \{w \in \Sigma^* : \#_M(w) = \#_A(w)\}$ KHÔNG Chính quy:} Chứng minh bằng phản chứng qua Bổ đề Bơm (\texttt{m3\_\allowbreak automata/\allowbreak pumping.md}, chi tiết tại Phụ lục~\ref{app:pumping}): nếu $L_=$ chính quy thì do tính đóng dưới phép giao với ngôn ngữ chính quy $R = \texttt{M}^*\texttt{A}^*$, ngôn ngữ $L' = L_= \cap R = \{\texttt{M}^n\texttt{A}^n : n \ge 0\}$ cũng phải chính quy. Tuy nhiên, chọn từ $s = \texttt{M}^p \texttt{A}^p \in L'$ với độ dài bơm $p \ge 1$; mọi cách tách $s = xyz$ thỏa $|xy| \le p, |y| \ge 1$ đều ép $y = \texttt{M}^k$ ($k \ge 1$). Khi bơm $i = 0$, ta thu được $xz = \texttt{M}^{p-k}\texttt{A}^p \notin L'$ vì $\#_M(xz) < \#_A(xz)$ --- mâu thuẫn!
+    \item \textbf{(c) Kết luận kiến trúc:} Một DFA chỉ sở hữu bộ nhớ hữu hạn cố định, độc lập với chiều dài học kỳ $T$. Quy tắc bị chặn R4 chỉ tốn $O(c)$ trạng thái nên biểu diễn được bằng ô-tô-mát, còn đếm cân bằng chính xác toàn kỳ đòi hỏi bộ nhớ $O(T)$ không bị chặn nên buộc phải đẩy sang ràng buộc tuyến tính $\sum_{t=0}^{T-1} z_{i, t, \texttt{M}} - \sum_{t=0}^{T-1} z_{i, t, \texttt{A}} = 0$ trong ILP thay vì dùng ô-tô-mát.
+\end{itemize}
+\FloatBarrier

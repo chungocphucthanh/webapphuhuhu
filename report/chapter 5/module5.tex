@@ -1,0 +1,48 @@
+\section{Module 5: Tích hợp Hệ thống và Ứng dụng Web Streamlit}
+\label{sec:m5}
+
+\subsection{Kiến trúc Mô-đun và Tối ưu Trải nghiệm Thuyết trình}
+Để đưa toàn bộ chuỗi mô hình hóa từ chứng minh logic đến hoạch định dài hạn tới tay người điều phối thi, Module 5 xây dựng ứng dụng web \textbf{Streamlit} tại \texttt{app/app.py} với thiết kế tách biệt hoàn toàn lớp giao diện khỏi lõi thuật toán của Modules 1--4:
+\begin{itemize}
+    \item \textbf{Lớp điều phối và giao diện (\texttt{app.py}, \texttt{presentation.py}, \texttt{presentation.css}, \texttt{presentation\_\allowbreak views.py}, \texttt{theory\_\allowbreak content.py}):} Thiết lập thanh điều hướng $6$ chặng tương ứng mạch bài toán (\textit{Tổng quan}, \textit{1 · Logic}, \textit{2 · Xếp lịch}, \textit{3 · DFA}, \textit{4 · Fatigue}, \textit{Demo đầu-cuối}) cùng nút chuyển slide \textit{Phần trước / Phần tiếp}, các thẻ tổng hợp lý thuyết đối chiếu trực tiếp slide CO2011 và bảng kiểm tra quy mô.
+    \item \textbf{Lớp Adapter đọc/gọi Modules 1--4 (\texttt{data\_\allowbreak views.py}, \texttt{solver\_\allowbreak views.py}, \texttt{temporal\_\allowbreak views.py}, \texttt{dynamics\_\allowbreak views.py}):} Gọi trực tiếp các hàm lõi (\texttt{encode\_\allowbreak invigilator\_\allowbreak assignment}, \texttt{solve\_\allowbreak instance}, \texttt{extract\_\allowbreak minimal\_\allowbreak core}, \texttt{build\_\allowbreak model}, \texttt{solve}, \texttt{check\_\allowbreak schedule}, \texttt{DFA.accepts}, \texttt{add\_\allowbreak regular\_\allowbreak constraint}, \texttt{calibrate}, \texttt{simulate}) mà không sửa đổi mã nguồn các module trước.
+    \item \textbf{Tối ưu hiệu năng và kiểm soát an toàn (\texttt{precompute.py}, \texttt{m5\_\allowbreak bundle.json}):} Kết quả nặng trên toàn bộ dữ liệu ($73 \times 83$) được tính sẵn ngoại tuyến qua \texttt{python -m app.precompute} kèm mã băm SHA-256 kiểm chứng dữ liệu và seed; các lát cắt tương tác (\textit{Toy}, \textit{M1 Slice}, \textit{1 tuần}, \textit{2 tuần}) chạy giải trực tiếp trong phiên với bộ nhớ đệm \texttt{@st.cache\_\allowbreak data} và giới hạn thời gian CBC tùy chỉnh ($5$--$120\text{ s}$). Tệp CSV tải lên được kiểm tra chặt giới hạn an toàn ($\le 512\text{ KiB}$, $\le 2{,}000$ dòng, $\le 150$ người/ca, $\le 120$ ngày lịch).
+\end{itemize}
+
+\subsection{Đối chiếu Kết quả Đầu-Cuối trên Toàn bộ Dữ liệu}
+Bảng~\ref{tab:e2e_summary} tổng hợp toàn bộ chỉ số của bốn phương án phân công trên cùng dữ liệu thực và cùng \texttt{seed = 1358677812} (trích từ \texttt{app/\allowbreak m5\_\allowbreak bundle.json}), cho thấy sự bổ trợ tất yếu giữa bốn học phần:
+
+\begin{table}[htbp]
+\centering
+\caption{Bảng đối chiếu đầu-cuối (M1--M4) cho $4$ lịch phân công trên toàn bộ $73$ cán bộ và $83$ ca thi.}
+\label{tab:e2e_summary}
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} L r r r r r r c r r @{}}
+\toprule
+\textbf{Phương án} & \textbf{Hard} & \textbf{Max} & \textbf{Spread} & \textbf{$L_1$} & \textbf{LOC} & \textbf{Obj} & \makecell[bc]{\textbf{DFA}\\\textbf{đạt}} & \makecell[br]{\textbf{Eq.}\\\textbf{Spread}} & \makecell[br]{\textbf{Vượt}\\\textbf{$H$}} \\
+\midrule
+Baseline & $0$ & $19$ & $16$ & $115{,}397$ & $162$ & $264{,}777$ & $41/73$ & $4{,}148$ & $16{,}312$ \\
+M2 Optimal & $0$ & $11$ & $1$ & $36{,}329$ & $28$ & $59{,}849$ & $24/73$ & $0{,}259$ & $3{,}287$ \\
+M2 + R1$\times$R2$\times$R3 & $0$ & $11$ & $1$ & $36{,}329$ & $36$ & $66{,}569$ & $\mathbf{73/73}$ & $0{,}259$ & $1{,}914$ \\
+M4 Fatigue-Aware & $0$ & $11$ & $1$ & $36{,}329$ & $28$ & $59{,}849$ & $24/73$ & $0{,}259$ & $\mathbf{0{,}000}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{notebox}{Thông điệp tích hợp cốt lõi từ Module 5}
+\begin{enumerate}
+    \item \textbf{Tính khả thi (M1) $\neq$ Tối ưu công bằng (M2):} Lịch \texttt{Baseline} hợp lệ mọi ràng buộc cứng H1--H3 nhưng tải đỉnh lên tới $19$ và $L_1 = 115{,}397$; M2 hạ tải đỉnh xuống chặn dưới $t^* = 11$ và giảm $L_1$ gần $3{,}2\times$.
+    \item \textbf{Công bằng tổng (M2) $\neq$ Hợp lệ theo thời gian (M3):} Lịch \texttt{M2 Optimal} dù tối ưu tổng ca nhưng khiến $49/73$ cán bộ vi phạm các quy tắc nghỉ ngơi R1--R3; tích hợp flow DFA đưa tỷ lệ đạt chuẩn lên $73/73$ mà không làm tăng tải đỉnh $11$.
+    \item \textbf{Công bằng tĩnh $\neq$ An toàn quá độ (M4):} \texttt{M4 Fatigue-Aware} giữ nguyên $t^*=11, L_1=36{,}329$ như M2 nhưng tái phân bổ nhịp độ giữa các tuần để xóa sạch phần vượt ngưỡng mệt mỏi $H = 5{,}660$ ($16{,}312 \to 3{,}287 \to 0{,}000$).
+\end{enumerate}
+\end{notebox}
+
+\subsection{Khả năng Tái lập và Kiểm thử Hệ thống}
+Toàn bộ kết quả trên được tái lập từ mã nguồn sạch qua:
+\begin{itemize}
+    \item \texttt{python run\_all.py --seed \$(cat data/seed.txt)}: chạy tuần tự M1--M5 và kiểm chứng các bất biến toán học.
+    \item \texttt{streamlit run app/app.py}: khởi chạy giao diện trình chiếu tương tác trực tiếp.
+    \item Bộ kiểm thử tự động \texttt{pytest} bao phủ toàn bộ quy trình (kiểm thử đơn vị CNF, cầu nối Logic-LP, mô hình ILP, bộ kiểm định độc lập, DFA R1--R4, tối giản, flow brute-force, hệ động lực Hướng B và tích hợp Streamlit).
+\end{itemize}

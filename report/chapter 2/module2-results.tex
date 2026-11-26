@@ -1,0 +1,83 @@
+\subsection{Tiền xử lý Dữ liệu, Cấu hình Bộ giải và Quy mô Mô hình (Req 2.6, 2.7)}
+\label{sec:m2_solver}
+
+Tất cả dữ liệu đầu vào giả lập được sinh tất định từ \texttt{seed = 1358677812}:
+\begin{itemize}
+    \item \textbf{Tập khả dụng $A$:} Trong $73 \times 65 = 4{,}745$ cặp $(\text{người}, \text{mã ca})$, lịch gốc có $769$ cặp; trên $3{,}976$ cặp còn lại, phép thử Bernoulli $p = 0{,}30$ mở thêm $1{,}182$ cặp, ánh xạ sang hai cơ sở thành $|A| = 2{,}593$ cặp khả dụng.
+    \item \textbf{Nguyện vọng và Trọng số:} Xuất ra \texttt{data/\allowbreak simulated\_\allowbreak preferences.csv} ($16$ \texttt{CS1}, $29$ \texttt{CS2}, $28$ \texttt{BAL}) và bộ trọng số $(\lambda_{\text{LOC}}, \lambda_{\text{FAT}}, \lambda_{\text{TRV}}) = (0{,}84;\, 1{,}90;\, 1{,}97)$.
+\end{itemize}
+
+Nhóm lựa chọn bộ giải mã nguồn mở \textbf{PuLP 2.8.0 + CBC} với cấu hình tất định \texttt{threads=1}, \texttt{gapRel=0.0}, \texttt{timeLimit=120} giây để bảo đảm hai lần chạy bất kỳ tạo ra tệp \texttt{schedule.csv} và \texttt{metrics.json} trùng khớp từng byte (SHA-256). Mô hình hoàn chỉnh ở Giai đoạn 1 có $2{,}594$ biến ($2{,}593$ nhị phân $x_{ij}$ và $t$) cùng $798$ hàng ($642$ \texttt{H2}, $83$ \texttt{H3}, $73$ \texttt{MAX}); sang Giai đoạn 2 mở rộng lên $4{,}377$ biến (thêm $73$ \texttt{dev}, $207$ $s_{id}$, $1{,}002$ $z_{idc}$, $501$ $v_{id}$) và $3{,}372$ hàng (thêm \texttt{TCAP}, \texttt{DEVP/N/C}, \texttt{FAT}, \texttt{TRVZ}, \texttt{TRV}).
+
+\subsection{Chẩn đoán Vô nghiệm và Phân tích Độ nhạy (Req 2.8)}
+\label{sec:m2_tuning}
+
+\subsubsection{Nới lỏng đàn hồi khi vô nghiệm (\texttt{tuning.diagnose})}
+Khi Giai đoạn 1 trả về \texttt{infeasible}, hệ thống chuyển H3 sang dạng đàn hồi $\sum_{i:(i,j)\in A} x_{ij} + u_j = r_j$ ($u_j \ge 0$) với hàm mục tiêu $\min t + 1000 \sum_j u_j$. Vì hệ số phạt $1000$ lấn át mọi cải thiện của $t$, bộ giải ưu tiên cực tiểu hóa tổng nhân sự thiếu hụt $\sum u_j$ trước. Chạy thử trên lát cắt UNSAT của Module 1 ($5$ người, $4$ ca), \texttt{tuning.diagnose} chỉ chính xác ca \texttt{20260610\_2\_CS2} bị thiếu $1$ người ($u_j = 1$) --- khớp tuyệt đối với Minimal UNSAT Core của Module 1 (\textit{Module 1 chỉ ra nguyên nhân \texttt{Busy}, Module 2 định lượng quy mô thiếu hụt}).
+
+\subsubsection{Phân tích độ nhạy trọng số và ngưỡng $K$}
+Nhóm khảo sát đồng thời việc nhân mỗi trọng số $\lambda$ với $\{0{,}5;\, 1;\, 2\}$ và thay đổi $K \in \{2, 3, 4\}$ trên các tiền tố $1$ tuần, $2$ tuần, $3$ tuần và toàn bộ dữ liệu (Bảng~\ref{tab:m2_sensitivity}).
+
+\begin{table}[htbp]
+\centering
+\caption{Các cấu hình nhạy làm thay đổi nghiệm trong thí nghiệm phân tích độ nhạy.}
+\label{tab:m2_sensitivity}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} l L C c @{}}
+\toprule
+\textbf{Phạm vi} & \textbf{Nghiệm chuẩn} \newline \textbf{($\max, L_1, \text{LOC}, \text{FAT}, \text{TRV}$)} & \textbf{Cấu hình gây đổi} & \textbf{Nghiệm mới} \\
+\midrule
+1 tuần & $1;\; 22{,}623;\; 0;\; 0;\; 0$ & Không có & --- \\
+2 tuần & $2;\; 34{,}521;\; 0;\; 0;\; 0$ & Không có & --- \\
+3 tuần & $7;\; 28{,}110;\; 17;\; 0;\; 0$ & $\lambda_{\text{LOC}} \times 2 \; (1{,}68)$ & $7;\; 48{,}822;\; 3;\; 0;\; 0$ \\
+3 tuần & $7;\; 28{,}110;\; 17;\; 0;\; 0$ & $K = 2$ & $7;\; 28{,}110;\; 19;\; 0;\; 0$ \\
+Toàn kỳ & $11;\; 36{,}329;\; 28;\; 0;\; 0$ & $K = 2$ & $11;\; 36{,}329;\; 50;\; 0;\; 0$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Bốn kết luận chính từ Bảng~\ref{tab:m2_sensitivity}: (i) \texttt{max\_load} bất biến nhờ kiến trúc $2$ giai đoạn tách biệt; (ii) trên lát cắt $3$ tuần, $\lambda_{\text{LOC}}$ đánh đổi với $L_1$ tại điểm cân bằng $\approx 20{,}71 / 14 \approx 1{,}48$, cao hơn trọng số seed $0{,}84$ nên công bằng vẫn được ưu tiên; (iii) $\text{FAT} = \text{TRV} = 0$ ở mọi phép thử vì miền $A$ đủ rộng để tránh quá tải ngày và di chuyển liên cơ sở mà không tốn $L_1$; (iv) ép $K=2$ làm $\text{LOC}$ toàn kỳ tăng vọt từ $28$ lên $50$, còn $K=4$ cho nghiệm y hệt $K=3$, củng cố vững chắc lựa chọn $K=3$ từ dữ liệu.
+
+\subsection{Kết quả Tối ưu, Hiệu năng và So sánh với Baseline (Req 2.9)}
+\label{sec:m2_perf}
+
+Bảng~\ref{tab:m2_baseline_cmp} đối chiếu lịch tối ưu của Module 2 với lịch gốc \texttt{Baseline} trên toàn bộ $73$ cán bộ và $83$ ca thi.
+
+\begin{table}[htbp]
+\centering
+\caption{So sánh toàn diện giữa lịch gốc Baseline và nghiệm tối ưu Module 2 (\texttt{beats\_baseline = true}).}
+\label{tab:m2_baseline_cmp}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} L r r r r r r r r @{}}
+\toprule
+\textbf{Phương án} & \textbf{Max load} & \textbf{Min load} & \textbf{Spread} & \textbf{$L_1$} & \textbf{LOC} & \textbf{FAT} & \textbf{TRV} & \textbf{Stage-2 Obj} \\
+\midrule
+Baseline (Lịch gốc) & $19$ & $3$ & $16$ & $115{,}397$ & $162$ & $7$ & $0$ & $264{,}777$ \\
+\textbf{M2 Optimal} & $\mathbf{11}$ & $\mathbf{10}$ & $\mathbf{1}$ & $\mathbf{36{,}329}$ & $\mathbf{28}$ & $\mathbf{0}$ & $\mathbf{0}$ & $\mathbf{59{,}849}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{itemize}
+    \item \textbf{Tính tối ưu toàn cục:} Giai đoạn 1 giải trong $\approx 0{,}07\text{ s}$ đạt $t^* = 11 = \lceil 769/73 \rceil$ (chặn dưới LP $Z_{\text{LP}}^{(1)} = 10{,}534$), nên mọi cán bộ đều coi đúng $10$ hoặc $11$ ca (\texttt{spread} giảm từ $16$ xuống $1$). Giai đoạn 2 giải trong $\approx 0{,}17\text{ s}$ với độ hở tối ưu $\text{gap} = 0$, giảm $L_1$ tới $68{,}5\%$, giảm vi phạm cơ sở từ $162$ xuống $28$ và xóa bỏ hoàn toàn $7$ ngày quá tải.
+    \item \textbf{Tác động quyết định của dây cung \texttt{DEVC}:} Kiểm chứng trong \texttt{performance.py} cho thấy khi bật \texttt{DEVC}, giá trị thư giãn LP của giai đoạn 2 đạt đúng $Z_{\text{LP}}^{(2)} = 59{,}848767 = Z_{\text{ILP}}^{(2)}$ và CBC đóng nghiệm ngay tại nút gốc ($0$ nhánh). Nếu tắt \texttt{DEVC}, cận dưới LP tụt xuống $23{,}520000$, CBC phải duyệt khoảng $2{,}900$ nút và chạm giới hạn $30\text{ s}$ với độ hở $\approx 13\%$.
+\end{itemize}
+
+\subsection{Hai Phản ví dụ về Mô hình Sai (Req 2.10)}
+\label{sec:m2_counterexample}
+
+Trong \texttt{m2\_\allowbreak ilp/\allowbreak counterexample.py}, nhóm triển khai đồng thời hai lựa chọn mô hình hóa sai lầm dễ mắc phải bằng cờ cấu hình trên cùng mã nguồn chính:
+
+\begin{enumerate}
+    \item \textbf{Phản ví dụ (a) -- Bỏ ràng buộc H2 (\texttt{drop\_\allowbreak overlap=True}):} Lập luận sai thường gặp là mọi cặp trùng giờ đều nằm ở hai cơ sở của cùng một mã ca và hàm mục tiêu đã phạt di chuyển liên cơ sở $\lambda_{\text{TRV}} = 1{,}97$, nên có thể bỏ $642$ hàng H2 để thu gọn mô hình. Thực tế, $\text{TRV}$ chỉ là \textit{chi phí mềm} trên ngày chứ không phân biệt được hai ca liên tiếp (hợp lệ) với hai ca đồng thời (bất khả thi), đồng thời Giai đoạn 1 không chứa $\text{TRV}$. Trên kịch bản thắt chặt khả dụng (\texttt{flip\_rate=0}, $|A|=1{,}125$):
+    \begin{itemize}
+        \item Trên lát cắt $9$ ngày thi ($40$ người, $17$ ca, $1$ cặp trùng giờ), mô hình đúng cho $L_1 = 36{,}25$, còn mô hình sai báo $L_1 = 35{,}00$ (trông có vẻ công bằng hơn!) nhưng lại phân công \textbf{CB032 coi đồng thời cả \texttt{20260528\_3\_CS1} và \texttt{20260528\_3\_CS2}} (13:00--15:30 ngày 28/05/2026).
+        \item Trên toàn bộ dữ liệu với \texttt{flip\_rate=0}, mô hình đúng chứng minh tải đỉnh tốt nhất là $19$ (không đánh bại Baseline), trong khi mô hình sai báo cáo giả \texttt{max\_load = 12} (\texttt{beats\_baseline = true} sai sự thật) cùng $19$ lượt vi phạm H2 trên $12$ cán bộ.
+    \end{itemize}
+    \item \textbf{Phản ví dụ (b) -- Thư giãn biến nguyên thành liên tục (\texttt{relax\_\allowbreak integrality=True}):} Mặc dù bài toán phân công cổ điển có ma trận toàn đơn mô-đun, việc thêm biến $t$ qua ràng buộc \texttt{MAX} (và các clique H2) đã phá hủy tính chất này. Trên bài toán mẫu $3$ cán bộ, $4$ ca nối tiếp mỗi ca $1$ người, nghiệm thư giãn LP cho $Z_{\text{LP}} = 4/3 < Z_{\text{ILP}} = 2$, với phân công phân số $(1/3, 1/3, 1/3)$ tại ca S3 --- hoàn toàn vô nghĩa về mặt nghiệp vụ (làm tròn tại $0{,}5$ làm ca S3 trống người, làm tròn lên đưa $3$ người vào S3). Trên dữ liệu thực, LP Giai đoạn 1 cho cận dưới phân số $769/73 \approx 10{,}534$, thấp hơn nghiêm ngặt so với nghiệm nguyên khả thi $t^* = 11$.
+\end{enumerate}
+\FloatBarrier
