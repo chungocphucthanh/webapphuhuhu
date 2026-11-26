@@ -1,0 +1,139 @@
+\section{Module 1: Mô hình Logic và Kiểm tra Tính Thỏa được (Logic \& Satisfiability)}
+\label{sec:m1}
+
+\subsection{Cơ sở Lý thuyết Logic Mệnh đề và Vị từ}
+Theo chương 1 trong bộ slide \textit{Advance Logic and Program Verification} (CO2011) \cite{slides_logic,huth2004,rosen2019}, hệ thống suy diễn hình thức cho bài toán phân công được xây dựng trên hai tầng ngôn ngữ:
+
+\begin{theorybox}{Cơ sở Lý thuyết Logic (CO2011 Slides Ch.1)}
+\begin{itemize}
+    \item \textbf{Ngôn ngữ mệnh đề và định giá (\texttt{Lemma 1.1}, \texttt{Def. 1.7}):} Với tập biến nguyên tử $\mathcal{L}$, một $\mathcal{L}$-gán trị $M: \mathcal{L} \to \{T, F\}$ xác định duy nhất một hàm định giá $v_M$ trên mọi công thức hợp chuẩn. Công thức $S$ gọi là \textit{thỏa được} (satisfiable) nếu tồn tại ít nhất một định giá $v_M(S) = T$; ngược lại là \textit{mâu thuẫn} (\texttt{Def. 1.3}: không có mô hình thỏa).
+    \item \textbf{Hệ quả ngữ nghĩa và Tính đầy đủ (\texttt{Def. 1.10}, \texttt{Thm. 1.1--1.2}):} Tập tiền đề $\Phi \models \psi$ khi mọi định giá làm đúng $\Phi$ đều làm đúng $\psi$. Theo tính đúng (\textit{Soundness}) và tính đầy đủ (\textit{Completeness}), kiểm chứng khả năng thỏa ràng buộc tương đương kiểm tra sự tồn tại của một $\mathcal{L}$-valuation thỏa đồng thời toàn bộ công thức.
+    \item \textbf{Dạng chuẩn hội CNF (\texttt{Def. 1.11}):} Một \textit{literal} $L$ là biến $p$ hoặc phủ định $\neg p$. Công thức ở dạng CNF là hội của các mệnh đề tuyển (\textit{clauses}): $C = \bigwedge_k \big(\bigvee_r L_{k,r}\big)$. Mọi quy tắc kéo theo $(A \to B)$ đều chuyển tương đương sang $(\neg A \lor B)$ để đưa vào bộ giải SAT.
+    \item \textbf{Logic vị từ bậc nhất (\texttt{Def. 1.12--1.13}):} Dùng vị từ nhiều ngôi $P(x_1,\dots,x_n)$ kết hợp lượng từ phổ dụng $\forall$ và tồn tại $\exists$ trên miền giá trị xác định, phân biệt biến tự do và biến bị buộc.
+\end{itemize}
+\end{theorybox}
+
+\subsection{Khai báo Mô hình Vị từ Bậc nhất (Req 1.1)}
+\label{sec:m1_fol}
+
+Dựa trên cấu trúc dữ liệu chuẩn hóa từ \texttt{m1\_logic/data\_loader.py}, mô hình FOL sử dụng các tập hợp:
+\begin{itemize}
+    \item $I = \{0, 1, \dots, N-1\}$: Tập hợp $N = 73$ cán bộ (\texttt{staff\_ids}), gộp chung mọi vai trò coi thi.
+    \item $J = \{0, 1, \dots, M-1\}$: Tập hợp $M = 83$ ca thi thực tế (\texttt{session\_ids}), mỗi ca là cặp $(\text{shift\_code}, \text{campus})$ trên $65$ mã khung giờ (\texttt{shift\_ids}).
+    \item $C = \{\text{CS1}, \text{CS2}\}$: Hai cơ sở thi (Lý Thường Kiệt và Dĩ An).
+    \item $d_j \in \mathbb{N}^*$: Định ngạch số lượng cán bộ bắt buộc cho ca $j$ (\texttt{shift\_demands[j]}), với $\sum_{j \in J} d_j = 769$.
+\end{itemize}
+
+Hệ thống vị từ mô tả trạng thái phân công và dữ kiện đầu vào gồm:
+\begin{itemize}
+    \item $\text{Assign}(i, j) \in \{\text{True}, \text{False}\}$: Cán bộ $i$ được phân công vào ca thi $j$.
+    \item $\text{Busy}(i, j) \in \{\text{True}, \text{False}\}$: Cán bộ $i$ bận tại ca $j$ (do dữ liệu gốc không ghi nhận lịch bận tường minh, \texttt{prepare\_instances.py} sinh các kịch bản kiểm thử theo \texttt{seed = 1358677812}).
+    \item $\text{Overlap}(j, k) \in \{\text{True}, \text{False}\}$: Hai ca $j \neq k$ có khoảng thời gian giao nhau thực sự ($[\text{start}_j, \text{end}_j) \cap [\text{start}_k, \text{end}_k) \neq \emptyset$, cho phép tiếp giáp đầu--cuối). Vị từ này đối xứng và phản phản xạ.
+    \item $\text{AtCampus}(j, c)$ và $\text{Prefer}(i, c)$: Địa điểm của ca $j$ và nguyện vọng cơ sở của cán bộ $i$ (dùng cho ràng buộc mềm ở Module 2).
+\end{itemize}
+
+Ba quy tắc ràng buộc cứng (Hard Constraints) được viết thành các công thức vị từ bậc nhất:
+\begin{enumerate}
+    \item \textbf{H1 -- Khả dụng (Availability):} Cán bộ bận không được phân công:
+    \begin{equation}
+    \begin{aligned}
+        \forall i \in I, \, \forall j \in J: \quad
+        &\text{Busy}(i, j) \rightarrow \neg \text{Assign}(i, j) \\
+        &\equiv \neg \text{Busy}(i, j) \lor \neg \text{Assign}(i, j).
+    \end{aligned}
+    \end{equation}
+    \item \textbf{H2 -- Không trùng ca (No Double-Booking):} Một cán bộ không coi hai ca giao giờ nhau:
+    \begin{equation}
+    \begin{aligned}
+        \forall i \in I, \, \forall j, k \in J: \quad
+        &\big( j \neq k \land \text{Overlap}(j, k) \land \text{Assign}(i, j) \big) \\
+        &\rightarrow \neg \text{Assign}(i, k).
+    \end{aligned}
+    \end{equation}
+    Dạng chuẩn tuyển với các cặp $j < k$ thỏa $\text{Overlap}(j, k)$: $\neg \text{Assign}(i, j) \lor \neg \text{Assign}(i, k)$.
+    \item \textbf{H3 -- Đủ định ngạch (Exact Capacity):} Mỗi ca $j$ có chính xác $d_j$ cán bộ:
+    \begin{equation}
+    \begin{aligned}
+        &\forall j \in J, \; \exists S \subseteq I, \, |S| = d_j: \\
+        &\qquad \bigwedge_{i \in S} \text{Assign}(i, j) \land \bigwedge_{i' \notin S} \neg \text{Assign}(i', j).
+    \end{aligned}
+    \end{equation}
+\end{enumerate}
+
+\subsection{Mã hóa CNF, Giải SAT \& Trích xuất Lõi UNSAT (Req 1.2)}
+\label{sec:m1_sat}
+
+\subsubsection{Ánh xạ biến phẳng và Tránh bùng nổ tổ hợp}
+Trong \texttt{m1\_logic/cnf.py}, biến $\text{Assign}(i, j)$ được đánh chỉ số nguyên dương 1-indexed theo thứ tự hàng:
+\begin{equation}
+    \text{var\_id}(i, j) = i \times M + j + 1, \quad i \in [0, N-1], \, j \in [0, M-1].
+\end{equation}
+Với toàn bộ dữ liệu ($N = 73, M = 83$), không gian biến cơ sở gồm $73 \times 83 = 6{,}059$ biến. Các ID lớn hơn $N \times M$ từ \texttt{IDPool} là biến phụ trợ sinh bởi mạch đếm. Hàm \texttt{encode\_\allowbreak invigilator\_\allowbreak assignment} sinh mệnh đề theo đúng thứ tự $\text{Capacity} \to \text{Busy} \to \text{Overlap}$; nếu tồn tại ca có $d_j > N$, bộ mã hóa chèn ngay mệnh đề rỗng \texttt{[]} để báo UNSAT.
+
+Nếu mã hóa điều kiện \textit{at-most-$d_j$} bằng tổ hợp trực tiếp (Binomial Encoding), số mệnh đề cho một ca là $\binom{N}{d_j + 1}$. Với $6$ ca thi tập trung có định ngạch cao nhất $d_j = 32$ (chẳng hạn ca $j = 27$ \texttt{20260601\_2\_CS2} hay $j = 51$ \texttt{20260608\_3\_CS1}), số mệnh đề bùng nổ tới:
+\begin{equation}
+    \binom{73}{33} \approx 6{,}7 \times 10^{20} \text{ mệnh đề,}
+\end{equation}
+bất khả thi về bộ nhớ. Do đó, nhóm sử dụng mã hóa đếm tuần tự \textbf{Sequential Counter} (Sinz, 2005 \cite{sinz2005}) thông qua \texttt{CardEnc.equals(..., \allowbreak encoding=EncType.seqcounter)}, đưa số mệnh đề xuống đa thức $O(N \cdot d_j)$. Trên toàn bộ dữ liệu ($83$ ca, tập bận rỗng), bộ mã hóa tạo tổng cộng $156{,}428$ mệnh đề CNF và \texttt{Minisat22} xác nhận trạng thái \textbf{SAT}.
+
+\subsubsection{Thực nghiệm trên Mẫu Toy và Lát cắt Dữ liệu Thực (\texttt{real\_slice.csv})}
+Hàm \texttt{prepare\_instances(1358677812)} tạo ra cả ví dụ mẫu kiểm tay (\textit{toy}) và lát cắt dữ liệu thực để chạy với \texttt{sat\_check.py} và \texttt{unsat\_core.py}:
+\begin{itemize}
+    \item \textbf{Kịch bản Toy:} $3$ cán bộ $\{\text{CB1}, \text{CB2}, \text{CB3}\}$, $2$ ca không trùng giờ $\{\text{Morning}, \text{Afternoon}\}$ tại \texttt{CS1}, định ngạch $[2, 2]$. Khi chỉ $\text{CB1}$ bận ca sáng, kết quả là \textbf{SAT} (bắt buộc chọn $\text{CB2}, \text{CB3}$ cho ca sáng). Khi cả $\text{CB1}, \text{CB2}$ cùng bận ca sáng, kết quả là \textbf{UNSAT}.
+    \item \textbf{Lát cắt thực (\texttt{data/m1\_cases/real\_slice.csv}):} Gồm $5$ cán bộ (\texttt{CB001}, \texttt{CB002}, \texttt{CB006}, \texttt{CB063}, \texttt{CB066}) và $4$ ca thi (\texttt{20260531\_3\_CS1} định ngạch $4$, \texttt{20260608\_1\_CS1} định ngạch $1$, \texttt{20260608\_1\_CS2} định ngạch $1$, \texttt{20260610\_2\_CS2} định ngạch $1$; có $1$ cặp trùng giờ $(1, 2)$).
+    \begin{itemize}
+        \item \textit{Kịch bản SAT:} Mọi ca đều có số người rảnh $\ge$ định ngạch; \texttt{Minisat22} trả nghiệm \textbf{SAT} hợp lệ.
+        \item \textit{Kịch bản UNSAT:} Ca \texttt{20260610\_2\_CS2} bị ép thiếu người (còn $0$ người rảnh trong khi cần $1$). Kỹ thuật gắn biến chọn (\textit{selector variable}) $(-s \lor C)$ kết hợp \textit{deletion-based minimization} trong \texttt{extract\_minimal\_core} trích xuất chính xác \textbf{Lõi bất khả thỏa cực tiểu (Minimal UNSAT Core)} gồm đúng $6$ ràng buộc:
+        \begin{center}
+            \small
+            \texttt{capacity(20260610\_2\_CS2)=1} \\
+            và 5 mệnh đề \texttt{Busy(CB001/CB002/CB006/CB063/CB066, 20260610\_2\_CS2)}.
+        \end{center}
+        Loại bỏ bất kỳ một ràng buộc nào trong $6$ điều kiện này lập tức khôi phục trạng thái \textbf{SAT}, chứng tỏ lõi đạt tính cực tiểu tuyệt đối (inclusion-minimal). Kết luận rút ra là lát cắt này vô nghiệm về mặt cấu trúc: không hàm mục tiêu hay phép thư giãn LP nào có thể cứu vãn nếu không nới lỏng ít nhất một ràng buộc trong lõi.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Cầu nối từ Logic sang Quy hoạch Tuyến tính (Req 1.3)}
+\label{sec:m1_bridge}
+
+Để chuyển giao ràng buộc sang Module 2 mà không cần dùng SAT solver, \texttt{m1\_\allowbreak logic/\allowbreak linear\_\allowbreak bridge.py} ánh xạ $1$--$1$ các mệnh đề logic sang bất đẳng thức tuyến tính trên biến nhị phân $x_{ij} \in \{0, 1\}$. Với mệnh đề tuyển gồm tập literal khẳng định $P$ và phủ định $N$:
+\begin{equation}
+\begin{aligned}
+    \bigvee_{p \in P} x_p \lor \bigvee_{n \in N} \neg x_n
+    &\Longrightarrow \sum_{p \in P} x_p + \sum_{n \in N} (1 - x_n) \ge 1 \\
+    &\iff \sum_{p \in P} x_p - \sum_{n \in N} x_n \ge 1 - |N|.
+\end{aligned}
+\end{equation}
+Hàm \texttt{LinearConstraint.flip()} đổi dấu các mệnh đề phủ định kép $(\neg x_a \lor \neg x_b)$ về dạng chuẩn $x_a + x_b \le 1$. Khác với \texttt{cnf\_to\_linear} (dịch từng mệnh đề kể cả biến phụ của bộ đếm tuần tự), hàm \texttt{encode\_\allowbreak invigilator\_\allowbreak assignment\_\allowbreak linear} nén toàn bộ điều kiện H3 của $83$ ca thi thành đúng $83$ phương trình đại số mà \textbf{không cần bất kỳ biến phụ trợ nào}, tạo miền thư giãn LP chặt hơn hẳn cho Module 2 (Bảng~\ref{tab:logic_to_lp_real}).
+
+\begin{table}[htbp]
+\centering
+\caption{Bảng cầu nối chuyển đổi hệ thống quy chế từ Logic CNF sang Bất đẳng thức Tuyến tính ILP.}
+\label{tab:logic_to_lp_real}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{@{} >{\raggedright\arraybackslash}p{2.8cm} L L >{\raggedright\arraybackslash}p{3.1cm} @{}}
+\toprule
+\textbf{Ràng buộc / Mẫu} & \textbf{Biểu diễn Logic (FOL / CNF)} & \textbf{Dạng Tuyến tính 0/1 (ILP)} & \textbf{Quy mô (Dữ liệu thật)} \\
+\midrule
+Biến quyết định & $\text{Assign}(i, j) \in \{\text{False}, \text{True}\}$ & $x_{ij} \in \{0, 1\}$ & $6{,}059$ biến ($73 \times 83$) \\
+H1 Khả dụng & $\forall (i,j)\in\text{busy}: \neg \text{Assign}(i,j)$ & $x_{ij} = 0$ & Tùy tập bận / tập $A$ \\
+H2 Không trùng ca & $\forall i \in I, (j,k)\in O:$ \newline $\neg x_{ij} \lor \neg x_{ik}$ & $x_{ij} + x_{ik} \le 1$ & $73 \times 18 = 1{,}314$ (dense) \\
+H3 Định ngạch & $\forall j \in J:$ \newline $\text{exactly-}d_j(\text{Assign}(\cdot, j))$ & $\sum_{i=0}^{72} x_{ij} = d_j$ & $83$ phương trình \\
+Mệnh đề tổng quát & $\bigvee_{p\in P} v_p \lor \bigvee_{n\in N} \neg v_n$ & $\sum_{p\in P} x_p - \sum_{n\in N} x_n \ge 1 - |N|$ & Tương đương trên $\{0,1\}$ \\
+Mệnh đề rỗng & $\square$ (\texttt{[]}) & $0 \ge 1$ (vô nghiệm) & Phát sinh khi $d_j > N$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{Bác bỏ các Ánh xạ Sai bằng Phản chứng (\texttt{wrong\_\allowbreak mapping\_\allowbreak counterexamples})}
+Hàm \texttt{wrong\_\allowbreak mapping\_\allowbreak counterexamples()} duyệt vét cạn không gian chân trị ($2^n$) và xuất ra nhân chứng phản chứng (\textit{witness}) cho $5$ sai lầm ánh xạ kinh điển (đồng thời kiểm chứng tự động $9$ mẫu chân trị với $0$ sai khác):
+\begin{enumerate}
+    \item \textbf{Sai dạng Tuyển ($a \lor b \Rightarrow x_a + x_b = 1$):} Ép thành tuyển loại trừ; tại $x_a = 1, x_b = 1$, logic nhận $\text{True}$ nhưng phương trình trả về $\text{False}$.
+    \item \textbf{Quên đổi dấu Phủ định ($\neg a \lor b \Rightarrow x_a + x_b \ge 1$):} Phá vỡ phép kéo theo $a \to b$; tại $x_a = 1, x_b = 0$, logic nhận $\text{False}$ nhưng bất đẳng thức lại nhận $\text{True}$.
+    \item \textbf{Sai chiều Ràng buộc Trùng ca ($\neg a \lor \neg b \Rightarrow x_a + x_b \ge 1$):} Đảo ngược H2; tại $x_a = 1, x_b = 1$, logic cấm trùng lịch ($\text{False}$) nhưng bất đẳng thức cho phép ($\text{True}$).
+    \item \textbf{Thiếu cận dưới của Định ngạch ($\text{Exactly-}k \Rightarrow \sum x \le k$):} Cho phép phương án rỗng $x = (0,0,0)$ bỏ trống ca thi khi logic cần $k=2$ người.
+    \item \textbf{Thiếu cận trên của Định ngạch ($\text{Exactly-}k \Rightarrow \sum x \ge k$):} Cho phép phân công dư người $x = (1,1,1)$ khi cần $k=2$, làm sai lệch bài toán tối ưu.
+\end{enumerate}
+\FloatBarrier

@@ -1,0 +1,94 @@
+\section{Module 2: Quy hoạch Tuyến tính Nguyên (Linear \& Integer Programming)}
+\label{sec:m2}
+
+\subsection{Cơ sở Lý thuyết Quy hoạch Tuyến tính và Nguyên}
+Theo chương 3 trong bộ slide \textit{Integer Optimization -- Models and Practical Usages} (CO2011) \cite{slides_ilp,matousek2007,nemhauser1999}, mô hình tối ưu hóa phân công được xây dựng trên nền tảng lý thuyết đa diện lồi và thuật toán cắt nhánh:
+
+\begin{theorybox}{Cơ sở Lý thuyết LP và ILP (CO2011 Slides Ch.3)}
+\begin{itemize}
+    \item \textbf{Mô hình Quy hoạch Tuyến tính (\texttt{Sec. 3.1}, \texttt{Thm. 3.1--3.3}):} Bài toán LP dạng chuẩn/chính tắc cực tiểu hóa $Z = c^T x$ trên hệ ràng buộc tuyến tính $Ax = b, \; x \ge 0$ luôn có miền khả thi là một \textit{tập lồi} (\texttt{Thm. 3.1}). Theo Định lý Biểu diễn (\texttt{Thm. 3.2}) và Định lý Cơ bản của LP (Dantzig, \texttt{Thm. 3.3}), nếu bài toán bị chặn và khả thi thì giá trị tối ưu luôn đạt được tại ít nhất một \textit{điểm cực trị} (\textit{basic feasible solution}) của đa diện, cho phép thuật toán Đơn hình (\textit{Simplex Method}, \texttt{Sec. 3.3--3.4}) tìm nghiệm hiệu quả.
+    \item \textbf{Quy hoạch Tuyến tính Nguyên Nhị phân (BIP/ILP, \texttt{Sec. 3.6}):} Khi ép biến quyết định $x \in \{0,1\}^n$ (hoặc $\mathbb{Z}_+^n$), bài toán trở nên NP-khó. Bỏ điều kiện nguyên thành $0 \le x_{ij} \le 1$ thu được bài toán \textit{Thư giãn LP (LP Relaxation)}. Vì miền khả thi của ILP là tập con của LP relaxation, với bài toán cực tiểu ta luôn có cận dưới:
+    \begin{equation*}
+        Z_{\text{LP}} \le Z_{\text{ILP}}.
+    \end{equation*}
+    \item \textbf{Tính Toàn đơn mô-đun và Branch-and-Bound (\texttt{Sec. 3.9}):} Chỉ khi ma trận ràng buộc có tính \textit{Totally Unimodular} (TU) thì mọi đỉnh của LP relaxation mới tự động nguyên. Trong bài toán IAP với hàm \textit{min-max} và ràng buộc trùng ca theo \textit{clique}, tính TU bị phá vỡ, buộc bộ giải CBC phải dùng phương pháp \textbf{Nhánh và Cận (Branch-and-Bound)}: phân hoạch biến phân số (\textit{branching}), giải LP relaxation tại mỗi nút để lấy cận dưới (\textit{bounding}) và cắt tỉa nhánh kém hiệu quả (\textit{fathoming}).
+\end{itemize}
+\end{theorybox}
+
+\subsection{Tập hợp, Tham số và Biến Quyết định Thưa (Req 2.1, 2.2)}
+\label{sec:m2_formulation}
+
+Kế thừa trực tiếp bộ nạp dữ liệu \texttt{m1\_logic/data\_loader.py}, mô hình \texttt{m2\_ilp/instance.py} tổ chức bài toán trên $N = 73$ cán bộ ($i \in I$), $M = 83$ ca thi ($j \in J$), $23$ ngày thi ($d \in D$), $2$ cơ sở ($c \in \{\text{CS1}, \text{CS2}\}$), định ngạch $r_j$ ($\sum_{j \in J} r_j = 769$) và tập $18$ cặp ca thi trùng giờ $O$.
+
+Để thu gọn kích thước mô hình trong \texttt{m2\_ilp/variables.py}, thay vì tạo ma trận dày đặc $73 \times 83 = 6{,}059$ biến, hệ thống chỉ khởi tạo biến quyết định nhị phân trên tập cặp khả dụng $A$ ($|A| = 2{,}593$ biến, loại bỏ sẵn $3{,}466$ cặp không khả dụng) cùng biểu thức tải trọng:
+\begin{equation}
+\begin{aligned}
+    x_{ij} &\in \{0, 1\}, && \forall (i, j) \in A, \\
+    w_i &= \sum_{j: (i, j) \in A} x_{ij}, && \forall i \in I.
+\end{aligned}
+\end{equation}
+Khi bật cờ \texttt{relax\_integrality=True}, miền của $x_{ij}$ được nới sang liên tục $[0, 1]$ phục vụ tính cận dưới LP và phản ví dụ. Các biến phụ trợ tuyến tính hóa gồm:
+\begin{itemize}
+    \item $t \ge 0$: Biến vô hướng đo tải đỉnh toàn trường ($w_i \le t, \; \forall i \in I$).
+    \item $\delta_i \ge 0$ ($73$ biến \texttt{dev}): Độ lệch tuyệt đối $L_1$ của cán bộ $i$ quanh mức tải trung bình lý tưởng $\bar{w} = \frac{\sum_j r_j}{|I|} = \frac{769}{73} \approx 10{,}534$.
+    \item $s_{id} \ge 0$ ($207$ biến): Số ca vượt ngưỡng mệt mỏi $K = 3$ trong ngày $d$ của cán bộ $i$ (chỉ tạo khi $|A_i \cap J(d)| > K$).
+    \item $z_{idc} \in [0, 1]$ ($1{,}002$ biến) và $v_{id} \ge 0$ ($501$ biến): Biến chỉ thị làm việc tại cơ sở $c$ và di chuyển liên cơ sở trong ngày $d$ (chỉ tạo cho các cặp $(i, d)$ có khả dụng ở cả hai cơ sở).
+\end{itemize}
+
+\subsection{Hàm Mục tiêu Hai Giai đoạn và Tuyến tính hóa Công bằng (Req 2.3)}
+\label{sec:m2_objective}
+
+Phương sai tải trọng $\sum_i (w_i - \bar{w})^2$ là hàm bậc hai (dẫn tới MIQP). Để giữ mô hình hoàn toàn tuyến tính (ILP) và bảo đảm tiêu chí đánh bại tải đỉnh của lịch gốc (\texttt{beats\_baseline}: $\text{max\_load} < 19$), \texttt{m2\_ilp/objective.py} và \texttt{solve.py} thực hiện \textbf{tối ưu hóa hai giai đoạn theo thứ tự từ điển (Lexicographic Two-Stage ILP)}:
+
+\begin{itemize}
+    \item \textbf{Giai đoạn 1 (Cực tiểu hóa tải đỉnh -- Min-Max):}
+    \begin{equation}
+        \min_{x, t} \; t \qquad \text{s.t.} \quad w_i \le t \; (\forall i \in I \text{ -- \texttt{MAX}}), \quad \text{H1--H3}.
+    \end{equation}
+    Gọi giá trị tối ưu thu được là $t^*$. Do tổng tải không đổi bằng $769$ và tải nguyên, cận dưới lý thuyết là $t^* \ge \lceil 769 / 73 \rceil = 11$.
+    \item \textbf{Giai đoạn 2 (Cực tiểu hóa độ lệch $L_1$ và phạt mềm):} Khóa trần tải $t \le t^*$ (\texttt{TCAP}) để không đánh đổi tải đỉnh lấy phạt mềm, sau đó giải:
+    \begin{equation}
+        \min \; \sum_{i \in I} \delta_i + \lambda_{\text{LOC}} \cdot \text{LOC} + \lambda_{\text{FAT}} \cdot \text{FAT} + \lambda_{\text{TRV}} \cdot \text{TRV},
+    \end{equation}
+    với bộ trọng số từ seed nhóm: $\lambda = (0{,}84;\, 1{,}90;\, 1{,}97)$, cùng ràng buộc tuyến tính hóa độ lệch $L_1$:
+    \begin{equation}
+        \delta_i \ge w_i - \bar{w} \;\; (\texttt{DEVP}), \qquad \delta_i \ge \bar{w} - w_i \;\; (\texttt{DEVN}), \qquad \delta_i \ge 0.
+    \end{equation}
+\end{itemize}
+
+\paragraph*{Bất đẳng thức dây cung tăng cường (\texttt{DEVC} Chord Inequality):}
+Vì $w_i \in \mathbb{Z}_+$ mà $\bar{w} \approx 10{,}534$ không nguyên, tại hai số nguyên liên tiếp $L = \lfloor \bar{w} \rfloor = 10$ và $L+1 = 11$, hàm $f(w) = |w - \bar{w}|$ có giá trị $f(10) = 0{,}534$ và $f(11) = 0{,}466$. Trong thư giãn LP, nếu không chặn dưới, nghiệm phân số $w_i = \bar{w}$ làm $\delta_i$ tụt xuống $0$. Do đó, mô hình bổ sung $73$ bất đẳng thức hợp lệ (\textit{valid inequalities}):
+\begin{equation}
+    \delta_i \ge f(L) + \big(f(L+1) - f(L)\big)(w_i - L), \quad \forall i \in I \;\; (\texttt{DEVC}).
+\end{equation}
+Đường thẳng dây cung này không cắt bỏ bất kỳ nghiệm nguyên nào (vì $f(w)$ lồi và trùng tại $L, L+1$), nhưng đóng kín khoảng hở thư giãn LP tại nút gốc của giai đoạn 2.
+
+\textit{Ý nghĩa phân biệt của $L_1$:} Trên ví dụ mẫu của đề bài ($3$ cán bộ, $4$ ca, tối đa $2$ ca/người, $\bar{w} = 4/3$), hai phân phối tải $(2, 1, 1)$ và $(2, 2, 0)$ cùng đạt tải đỉnh $t^* = 2$, nhưng tổng độ lệch $L_1$ tương ứng là $4/3$ và $8/3$. Vì vậy giai đoạn 2 chọn duy nhất phân công cân bằng $(2, 1, 1)$.
+
+\subsection{Ràng buộc Cứng theo Clique và Bộ Kiểm định Độc lập (Req 2.4)}
+Ba ràng buộc cứng từ Module 1 được hiện thực hóa trong \texttt{m2\_ilp/hard.py}:
+\begin{enumerate}
+    \item \textbf{H1 -- Khả dụng:} Tự động thỏa mãn ($0$ hàng ràng buộc) do biến $x_{ij}$ chỉ tồn tại khi $(i, j) \in A$.
+    \item \textbf{H2 -- Không trùng ca theo Clique Cực đại:} Sử dụng tính chất Helly của đồ thị khoảng thời gian, hàm \texttt{maximal\_cliques} gom các ca giao nhau từng đôi thành các clique cực đại $g$:
+    \begin{equation}
+        \sum_{j \in g \cap A_i} x_{ij} \le 1, \quad \forall i \in I, \; \forall g \text{ thỏa } |g \cap A_i| \ge 2.
+    \end{equation}
+    Dạng clique chặt hơn dạng từng cặp trên miền LP (với clique $3$ ca, $x = 1/2$ thỏa mọi ràng buộc cặp $1/2+1/2 \le 1$ nhưng vi phạm clique $3/2 > 1$). Trên dữ liệu thực có $18$ cặp trùng giờ (cùng mã ca tại \texttt{CS1}/\texttt{CS2}), tất cả clique đều có kích thước $2$, tạo đúng $642$ hàng ràng buộc (tiết kiệm hơn một nửa so với $1{,}314$ hàng dày đặc).
+    \item \textbf{H3 -- Đủ định ngạch:} $\sum_{i: (i, j) \in A} x_{ij} = r_j$ với mọi $j \in J$ ($83$ phương trình).
+\end{enumerate}
+
+Để tránh sai sót trong bộ giải hoặc mô hình che lấp lỗi, hàm \texttt{check\_schedule} trong \texttt{m2\_ilp/validate.py} được viết hoàn toàn bằng Python thuần, \textbf{không import PuLP hay \texttt{model.py}}, đóng vai trò cổng gác bắt buộc trước khi ghi \texttt{schedule.csv}. Kiểm thử vét cạn trên $2^{12} = 4{,}096$ lịch của \texttt{clique\_instance} xác nhận \texttt{hard.py}, cầu nối Module 1 và \texttt{check\_schedule} chấp nhận cùng một tập lịch hợp lệ.
+
+\subsection{Ràng buộc Mềm và Khớp Ngưỡng Mệt mỏi từ Dữ liệu (Req 2.5)}
+Ba thành phần phạt mềm trong \texttt{m2\_ilp/soft.py} được tuyến tính hóa như sau:
+\begin{align}
+    \text{LOC} &= \sum_{(i, j) \in A} c_{ij} x_{ij}, \notag \\
+               &\quad \text{với } c_{ij} = \mathbb{I}\big(\text{pref}_i \in \{\text{CS1}, \text{CS2}\} \land \text{pref}_i \neq \text{campus}_j\big), \\
+    s_{id} &\ge \sum_{j \in J(d) \cap A_i} x_{ij} - K \;\; (\texttt{FAT}_{id}), \quad s_{id} \ge 0, \quad \text{FAT} = \sum s_{id}, \\
+    z_{i, d, c(j)} &\ge x_{ij} \;\; (\texttt{TRVZ}_{ij}), \\
+    v_{id} &\ge z_{id,\text{CS1}} + z_{id,\text{CS2}} - 1 \;\; (\texttt{TRV}_{id}), \quad \text{TRV} = \sum v_{id}.
+\end{align}
+Vì bài toán cực tiểu hóa với trọng số dương $\lambda > 0$ và $x_{ij} \in \{0, 1\}$, các biến liên tục $s_{id}, z_{idc}, v_{id}$ tự động bị ép xuống đúng cận dưới nguyên tại nghiệm tối ưu mà không cần khai báo biến nhị phân phụ.
+
+\paragraph*{Hiệu chuẩn ngưỡng mệt mỏi $K = 3$ từ dữ liệu:}
+Thống kê $472$ cặp $(\text{người}, \text{ngày làm việc})$ trong lịch \texttt{Baseline} cho phân phối số ca/ngày: $1$ ca ($246$ lượt -- $52{,}1\%$), $2$ ca ($162$ lượt -- $86{,}4\%$), $3$ ca ($57$ lượt -- $98{,}5\%$) và $4$ ca ($7$ lượt -- $100\%$). Theo quy tắc phân vị $95\%$ trong \texttt{fit\_fatigue\_k}, $K = 3$ là ngưỡng nhỏ nhất bao phủ $\ge 95\%$ thực tiễn lịch sử ($98{,}5\%$), đánh dấu đúng $7$ ngày $4$ ca của lịch gốc là quá tải mềm.

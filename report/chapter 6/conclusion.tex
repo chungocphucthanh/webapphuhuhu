@@ -1,0 +1,36 @@
+\section{Kết luận và Hướng Phát triển}
+\label{sec:conclusion}
+
+\subsection{Tổng kết Kết quả Đạt được}
+Đồ án đã hoàn thành việc xây dựng một hệ thống mô hình hóa toán học hoàn chỉnh, liên thông năm module cho bài toán phân công cán bộ coi thi tại CSE--HCMUT:
+\begin{itemize}
+    \item \textbf{Module 1 (Logic \& SAT):} Đặc tả đầy đủ H1--H3 bằng logic vị từ bậc nhất, mã hóa CNF bằng mạch đếm tuần tự tránh bùng nổ tổ hợp ($156{,}428$ mệnh đề trên dữ liệu thực), trích xuất chính xác Minimal UNSAT Core ($6$ ràng buộc) và kiểm chứng cầu nối sang 0/1 tuyến tính kèm $5$ phản chứng.
+    \item \textbf{Module 2 (ILP):} Thiết lập mô hình biến thưa ($|A|=2{,}593$), tối ưu từ điển hai giai đoạn với dây cung \texttt{DEVC} đóng kín độ hở LP tại nút gốc ($0{,}17\text{ s}$), giảm tải đỉnh từ $19$ xuống mức tối ưu lý thuyết $11$, kiểm định bởi bộ validator độc lập và chứng minh sai lầm của việc bỏ H2 hoặc thư giãn liên tục.
+    \item \textbf{Module 3 (Automata):} Mô hình hóa chuỗi ngày làm việc $\Sigma^{27}$, tối giản tích $R_1 \times R_2 \times R_3$ từ $259$ xuống $15$ trạng thái, phân rã đồ thị phân tầng flow ILP đạt $73/73$ cán bộ hợp lệ, đồng thời chứng minh chặt chẽ ranh giới giữa ngôn ngữ chính quy R4 và ngôn ngữ phi chính quy $\#_M = \#_A$.
+    \item \textbf{Module 4 (Discrete Dynamics):} Hiệu chuẩn mô hình vector fatigue Hướng B ($a = 0{,}270634$, $\rho(J) < 1$), chứng minh sự hội tụ về công bằng ($\operatorname{spread} \to 0$) và đưa ngưỡng mềm $H = 5{,}660$ vào ILP để đưa mức vượt ngưỡng về $0{,}000$.
+    \item \textbf{Module 5 (Web App):} Tích hợp toàn diện bốn module lên nền tảng Streamlit trực quan, nhẹ và sẵn sàng thuyết trình.
+\end{itemize}
+
+\subsection{Hạn chế và Hướng Mở rộng}
+Nhóm thẳng thắn ghi nhận bốn hạn chế của mô hình hiện tại: (1) lịch khả dụng và nguyện vọng cơ sở là dữ liệu giả lập từ seed thay cho khảo sát thực tế; (2) phép nén $1$ ký hiệu/ngày theo ưu tiên $\texttt{N} > \texttt{A} > \texttt{M}$ khiến các ngày $2$ ca (\texttt{M+A}) nghiêng về \texttt{A} khi đếm R4; (3) hệ số $a$ hồi quy từ suất tuần lịch sử có $R^2 = 0{,}0619$ do phân bố ca thi không đều giữa các tuần và chưa phản ánh mệt mỏi sinh lý thực; (4) do ràng buộc thời gian giải ($150\text{ s}$), phương án \texttt{M4 Fatigue-Aware} được giải tách riêng với ràng buộc flow M3 và chưa đưa R4 ($99$ trạng thái) vào flow ILP. Trong tương lai, hệ thống có thể mở rộng bằng cách kết hợp đồng thời flow M3 và ngưỡng $H$ của M4 trong một mô hình ILP thống nhất (biểu diễn R4 bằng $2T$ ràng buộc tuyến tính thay cho trạng thái ô-tô-mát) và nâng cấp lên mô hình tầm cuốn chiếu phản hồi vòng kín (Hướng A) khi có dữ liệu nghỉ phép thực tế.
+
+\begin{thebibliography}{99}
+\small
+\bibitem{slides_logic} M. V. M. Nguyen, K. A. Nguyen et al., \textit{CO2011 Lecture Slides: Chapter 1 -- Logic Theory and Program Verification}, CSE--HCMUT, 2021--2026.
+\bibitem{slides_ilp} M. V. M. Nguyen, K. A. Nguyen et al., \textit{CO2011 Lecture Slides: Chapter 3 -- Integer Optimization: Models and Practical Usages}, CSE--HCMUT, 2021--2026.
+\bibitem{slides_automata} T. V. Hoai, H. T. Nguyen, N. A. Khuong, L. H. Trang, \textit{CO2011 Lecture Slides: Chapter 4 -- Automata and Formal Languages}, CSE--HCMUT, 2021--2026.
+\bibitem{slides_dynamics} N. A. Khuong, H. T. Nguyen, M. V. M. Nguyen, \textit{CO2011 Lecture Slides: Chapter 5/6 -- Dynamical Systems}, CSE--HCMUT, 2021--2026.
+\bibitem{hanum2015} F. Hanum, M. A. Romliyah, T. Bakhtiar, ``Exam invigilators assignment problem: a goal programming approach,'' \textit{Applied Mathematical Sciences}, 9(58):2871--2880, 2015.
+\bibitem{burke2004} E. K. Burke et al., ``The state of the art of nurse rostering,'' \textit{Journal of Scheduling}, 7(6):441--499, 2004.
+\bibitem{pesant2004} G. Pesant, ``A regular language membership constraint for finite sequences of variables,'' in \textit{CP 2004}, LNCS 3258, pp. 482--495, Springer, 2004.
+\bibitem{cote2011} M.-C. C\^{o}t\'{e}, B. Gendron, L.-M. Rousseau, ``Grammar-based integer programming models for multiactivity shift scheduling,'' \textit{Management Science}, 57(1):151--163, 2011.
+\bibitem{sinz2005} C. Sinz, ``Towards an optimal CNF encoding of boolean cardinality constraints,'' in \textit{CP 2005}, LNCS 3709, pp. 827--831, Springer, 2005.
+\bibitem{rosen2019} K. H. Rosen, \textit{Discrete Mathematics and Its Applications}, 8th ed., McGraw-Hill, 2019.
+\bibitem{huth2004} M. Huth, M. Ryan, \textit{Logic in Computer Science}, 2nd ed., Cambridge University Press, 2004.
+\bibitem{linz2017} P. Linz, \textit{An Introduction to Formal Languages and Automata}, 6th ed., Jones \& Bartlett, 2017.
+\bibitem{hopcroft2006} J. E. Hopcroft, R. Motwani, J. D. Ullman, \textit{Introduction to Automata Theory, Languages, and Computation}, 3rd ed., Pearson, 2006.
+\bibitem{matousek2007} J. Matou\v{s}ek, B. G\"{a}rtner, \textit{Understanding and Using Linear Programming}, Springer, 2007.
+\bibitem{nemhauser1999} G. L. Nemhauser, L. A. Wolsey, \textit{Integer and Combinatorial Optimization}, Wiley, 1999.
+\bibitem{giordano2013} F. R. Giordano, W. P. Fox, S. B. Horton, \textit{A First Course in Mathematical Modeling}, 5th ed., Cengage, 2013.
+\bibitem{elaydi2005} S. Elaydi, \textit{An Introduction to Difference Equations}, 3rd ed., Springer, 2005.
+\end{thebibliography}

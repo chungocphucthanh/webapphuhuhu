@@ -1,0 +1,103 @@
+\section{Phụ lục A: Chứng minh Toán học Chi tiết}
+
+\subsection{Chứng minh Bổ đề Bơm cho Cân bằng Chính xác \texorpdfstring{$L_= = \{w \in \Sigma^* : \#_M(w) = \#_A(w)\}$}{L= = \{w in Sigma* : \#M(w) = \#A(w)\}}}
+\label{app:pumping}
+\begin{proof}
+Giả sử phản chứng rằng $L_= = \{w \in \Sigma^* : \#_M(w) = \#_A(w)\}$ là một ngôn ngữ chính quy trên $\Sigma = \{\texttt{M}, \texttt{A}, \texttt{N}, \texttt{-}\}$. Xét ngôn ngữ $R = \texttt{M}^*\texttt{A}^*$; rõ ràng $R$ chính quy vì được biểu diễn trực tiếp bởi biểu thức chính quy. Do lớp ngôn ngữ chính quy đóng dưới phép giao, ngôn ngữ:
+\begin{equation*}
+    L' = L_= \cap R = \{\texttt{M}^n \texttt{A}^n : n \ge 0\}
+\end{equation*}
+cũng phải là ngôn ngữ chính quy. Theo Bổ đề Bơm cho ngôn ngữ chính quy, tồn tại số nguyên dương $p \ge 1$ (độ dài bơm) sao cho mọi từ $s \in L'$ có $|s| \ge p$ đều phân tích được thành $s = xyz$ thỏa mãn đồng thời ba điều kiện: (i) $|xy| \le p$, (ii) $|y| \ge 1$, và (iii) $\forall i \ge 0, \; xy^i z \in L'$.
+
+Chọn từ $s = \texttt{M}^p \texttt{A}^p \in L'$ có độ dài $|s| = 2p \ge p$. Vì $|xy| \le p$, cả hai tiền tố $x$ và $y$ đều nằm trọn trong khối $p$ ký hiệu $\texttt{M}$ đầu tiên. Do $|y| \ge 1$, tồn tại số nguyên $k$ với $1 \le k \le p$ sao cho $y = \texttt{M}^k$. Lấy $i = 0$, ta thu được từ mới:
+\begin{equation*}
+    x y^0 z = xz = \texttt{M}^{p-k} \texttt{A}^p.
+\end{equation*}
+Khi đó $\#_M(xz) = p - k < p = \#_A(xz)$ (do $k \ge 1$), suy ra $xz \notin L'$, mâu thuẫn với điều kiện (iii). (Ví dụ minh họa với $p = 3$, $s = \texttt{MMMAAA}$, tách $x=\varepsilon, y=\texttt{M}$ cho $xz = \texttt{MMAAA} \notin L'$). Vậy $L'$ không chính quy, kéo theo $L_=$ không chính quy. Lưu ý: trên một độ dài hữu hạn cố định $T$, tập từ dài $T$ có $\#_M = \#_A$ là hữu hạn nên chính quy, nhưng DFA tối thiểu đòi hỏi $O(T)$ trạng thái phụ thuộc vào $T$, trong khi R4 ($|\#_M - \#_A| \le c$) chỉ cần $2c+2$ trạng thái cố định.
+\end{proof}
+
+\subsection{Chứng minh Tính Tương đương của Ràng buộc Luồng Regular-to-ILP}
+\label{app:flow_proof}
+\begin{proof}
+Cho DFA hoàn chỉnh $\mathcal{A} = (Q, \Sigma, q_0, \delta, F)$ và chuỗi nhị phân ngày $s_{t, a} \in \{0, 1\}$ ($\sum_a s_{t, a} = 1$ tại mỗi $t = 0, \dots, T-1$) xác định duy nhất một từ $w = w_1\dots w_T$ với $s_{t, w_{t+1}} = 1$. Giả sử hệ phương trình \texttt{SRC}, \texttt{FLOW}, \texttt{LINK} có nghiệm $y_{t, q, a} \in [0, 1]$. Ta chứng minh bằng quy nạp theo $t$ rằng toàn bộ $1$ đơn vị luồng tại tầng $t$ nằm trọn tại đúng đỉnh $q_t = \hat{\delta}(q_0, w_1\dots w_t)$:
+\begin{itemize}
+    \item \textit{Bước cơ sở ($t = 0$):} Phương trình \texttt{SRC} đặt $\sum_a y_{0, q_0, a} = 1$, và không có đỉnh nào khác ở tầng $0$ có luồng ra.
+    \item \textit{Bước quy nạp ($t \to t+1$):} Theo giả thiết quy nạp, tổng luồng tại tầng $t$ dồn ở $q_t$. Theo phương trình \texttt{LINK}, $\sum_q y_{t, q, a} = s_{t, a} = 0$ với mọi $a \neq w_{t+1}$ và $y \ge 0$, nên mọi cung có nhãn $a \neq w_{t+1}$ đều mang luồng $0$. Do đó toàn bộ $1$ đơn vị luồng từ $(t, q_t)$ phải đi theo duy nhất cung nhãn $w_{t+1}$ tới đỉnh $(t+1, \delta(q_t, w_{t+1})) = (t+1, q_{t+1})$.
+\end{itemize}
+Tại tầng cuối $T$, vì đồ thị phân tầng chỉ tạo biến $y$ trên các cung dẫn tới $F$, việc tồn tại luồng $1$ đơn vị tới tầng $T$ tương đương $q_T \in F$, tức $w \in L(\mathcal{A})$. Hơn nữa, chứng minh chỉ dùng tính nhị phân của $s_{t,a}$ nên $y_{t,q,a}$ giữ nguyên dạng liên tục $[0,1]$ mà vẫn tự động nhận giá trị $0/1$.
+\end{proof}
+
+\subsection{Chứng minh Co hẹp Độ trải và Phương sai trong Hệ Động lực Hướng B}
+\label{app:dynamics_proof}
+Với hệ $F_{n+1} = a F_n + b \ell - r \rho$, khi mọi cán bộ có chung tải tuần $\ell_i = \mu$ và nghỉ $\rho_i = \bar{\rho}$, ta có điểm cân bằng chung $F^* = \frac{b\mu - r\bar{\rho}}{1-a}$ cho mọi thành phần. Lấy hiệu giữa hai cán bộ $i, j$ bất kỳ:
+\begin{equation*}
+    F_{n+1, i} - F_{n+1, j} = a(F_{n, i} - F_{n, j}) \implies F_{n, i} - F_{n, j} = a^n (F_{0, i} - F_{0, j}).
+\end{equation*}
+Do đó $\operatorname{spread}(F_n) = \max_{i,j} |F_{n,i} - F_{n,j}| = |a|^n \operatorname{spread}(F_0)$ và tương tự $F_{n, i} - \bar{F}_n = a^n (F_{0, i} - \bar{F}_0)$ dẫn tới $\operatorname{Var}(F_n) = a^{2n} \operatorname{Var}(F_0)$. Khi $|a| < 1$, cả $\operatorname{spread}(F_n)$ và $\operatorname{Var}(F_n)$ đều hội tụ về $0$ theo hàm mũ.
+
+\section{Phụ lục B: Kết quả Kiểm chứng Tự động}
+
+\subsection{Kiểm chứng Vét cạn Mô hình Luồng Regular-to-ILP (\texorpdfstring{$T = 7$}{T = 7})}
+Trong \texttt{m3\_\allowbreak automata/\allowbreak regular\_\allowbreak to\_\allowbreak ilp.py}, hàm \texttt{brute\_\allowbreak force\_\allowbreak check()} đối chiếu giá trị tối ưu của mô hình luồng ILP với phương pháp duyệt vét cạn toàn bộ $4^7 = 16{,}384$ chuỗi trên $16$ kịch bản kiểm thử ($4$ ô-tô-mát R1, R2, R3, $R_1\times R_2\times R_3$ $\times$ $2$ hàm mục tiêu \texttt{random}/\texttt{max\_work} $\times$ $2$ chế độ cố định ngày): toàn bộ $\mathbf{16/16}$ trường hợp khớp tuyệt đối (Bảng~\ref{tab:app_bf}, trích từ \texttt{extra/\allowbreak regular\_\allowbreak to\_\allowbreak ilp.json}).
+
+\begin{table}[htbp]
+\centering
+\caption{Kết quả đối chiếu $16/16$ kịch bản vét cạn trên khung $T=7$ ngày của \texttt{regular\_to\_ilp.py}.}
+\label{tab:app_bf}
+\footnotesize
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.16}
+\begin{tabularx}{\textwidth}{@{} c L c r r c @{}}
+\toprule
+\textbf{DFA} & \textbf{Hàm mục tiêu} & \textbf{Cố định ngày} & \textbf{Brute-force} & \textbf{Flow ILP} & \textbf{Chuỗi tối ưu} \\
+\midrule
+R1 & \texttt{random}    & Không & $-16{,}00$ & $-16{,}00$ & \texttt{--AN--N} \\
+R1 & \texttt{random}    & Có    & $-11{,}00$ & $-11{,}00$ & \texttt{MN--MM-} \\
+R1 & \texttt{max\_work} & Không & $-6{,}25$  & $-6{,}25$  & \texttt{N-NN-NN} \\
+R1 & \texttt{max\_work} & Có    & $-6{,}00$  & $-6{,}00$  & \texttt{NN-NM-N} \\
+\addlinespace[3pt]
+R2 & \texttt{random}    & Không & $-14{,}00$ & $-14{,}00$ & \texttt{AMN-N-A} \\
+R2 & \texttt{random}    & Có    & $-20{,}00$ & $-20{,}00$ & \texttt{MMAMAN-} \\
+R2 & \texttt{max\_work} & Không & $-7{,}25$  & $-7{,}25$  & \texttt{MMMMAMN} \\
+R2 & \texttt{max\_work} & Có    & $-6{,}50$  & $-6{,}50$  & \texttt{MN-MMMN} \\
+\addlinespace[3pt]
+R3 & \texttt{random}    & Không & $-24{,}00$ & $-24{,}00$ & \texttt{-MM---A} \\
+R3 & \texttt{random}    & Có    & $-21{,}00$ & $-21{,}00$ & \texttt{--M-ANN} \\
+R3 & \texttt{max\_work} & Không & $-5{,}00$  & $-5{,}00$  & \texttt{-N--NNN} \\
+R3 & \texttt{max\_work} & Có    & $-5{,}00$  & $-5{,}00$  & \texttt{-NNNN--} \\
+\addlinespace[3pt]
+Prod & \texttt{random}    & Không & $-29{,}00$ & $-29{,}00$ & \texttt{N--MA-A} \\
+Prod & \texttt{random}    & Có    & $-18{,}00$ & $-18{,}00$ & \texttt{-N-MA-A} \\
+Prod & \texttt{max\_work} & Không & $-5{,}00$  & $-5{,}00$  & \texttt{N-N-N-N} \\
+Prod & \texttt{max\_work} & Có    & $-4{,}75$  & $-4{,}75$  & \texttt{N-AN--N} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Phụ lục C: Phân công Đóng góp và Khai báo Sử dụng AI}
+
+\subsection[Bảng Phân công Nhiệm vụ Chính theo Module]{Bảng Phân công Nhiệm vụ Chính theo Module\protect\\(trích {\normalfont\ttfamily CONTRIBUTIONS.md})}
+Mỗi thành viên đều tham gia đóng góp mã nguồn và kiểm tra chéo trên cả $4$ module lý thuyết với tỷ lệ hoàn thành phân công $100\%$:
+
+\begin{table}[htbp]
+\centering
+\caption{Tóm tắt phân công phụ trách chính của $5$ thành viên trong nhóm \texttt{CO2011-261-A01-2551896}.}
+\label{tab:app_contrib}
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.22}
+\begin{tabularx}{\textwidth}{@{} l L @{}}
+\toprule
+\textbf{Thành viên (MSSV)} & \textbf{Hạng mục phụ trách chính (Primary Ownership)} \\
+\midrule
+2551922 Chu Ngọc Phúc Thành & M1: Đặc tả vị từ (1.1); M2: Ràng buộc cứng H1--H3, Validator độc lập (2.4) \& Phản ví dụ (2.10); M3: R4 \& Bổ đề Bơm (3.4); M4: Mô hình vector mệt mỏi (\texttt{fatigue.py}). \\
+2551919 Đặng Nguyễn Thiên Phúc & M1: Ánh xạ biến \& mã hóa CNF (1.2); M2: Hàm mục tiêu (2.3) \& Hiệu năng (2.9); M3: Mã hóa chuỗi, lớp DFA \& tích hợp M3 (3.1); M4: Ngưỡng mềm ILP (\texttt{planning.py}). \\
+2551913 Võ Nguyễn Vĩ Nguyên & M1: Giải SAT \& Minimal UNSAT Core (1.2); M2: Phạt mềm (2.5) \& Độ nhạy/Hiệu chỉnh (2.8); M3: Tích \& Tối giản (3.2); M4: Tài liệu kỹ thuật. \\
+2551931 Đinh Hoàng Quang Vinh & M1: Tiền xử lý lát cắt (1.2); M2: Tập hợp, biến thưa \& dữ liệu giả lập (2.1, 2.2, 2.6); M3: DFA R1--R3 (3.1); M4: Pipeline \& đồ thị (\texttt{run.py}, \texttt{plots.py}). \\
+2551896 Nguyễn Quốc Hùng & M1: Cầu nối Logic-to-LP (1.3); M2: Lắp ráp mô hình, bộ giải CBC \& \texttt{run\_all.py} (2.7); M3: Flow ILP (3.3); M4: Trích xuất tải tuần (\texttt{workload.py}). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Khai báo Sử dụng Công cụ AI (AI-Use Declaration)}
+Tuân thủ quy định minh bạch học thuật của môn học (\texttt{README.md}), nhóm sử dụng trợ lý AI như công cụ hỗ trợ kỹ thuật để: (i) thảo luận thiết kế bộ mã hóa CNF và cầu nối Logic-to-LP ở Module 1; (ii) hỗ trợ rà soát cú pháp PuLP, sinh kiểm thử đối chiếu ở Module 2; (iii) đề xuất cấu trúc JSON cho DFA và quy tắc ưu tiên $\texttt{N} > \texttt{A} > \texttt{M}$ (đã được giảng viên xác nhận trên diễn đàn ngày 21/10/2026) ở Module 3; (iv) hỗ trợ cài đặt kiểm thử số, vẽ biểu đồ ở Module 4; (v) thiết kế lại giao diện trình chiếu Streamlit ở Module 5 và rà soát trình bày báo cáo LaTeX. Mọi mô hình toán học, mã nguồn và số liệu thực nghiệm đều do các thành viên trực tiếp kiểm tra, hiểu rõ và xác nhận qua bộ kiểm thử tự động.
