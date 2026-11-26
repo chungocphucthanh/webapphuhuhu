@@ -120,7 +120,10 @@ def render() -> None:
             with st.spinner("Đang chạy bốn mô hình trên lịch đã chọn…"):
                 m1 = services.m1_full()
                 rows, table = services.week_rows(schedule, week), services.metrics_table()
-                metric, base = table[schedule], table["Baseline"]
+                metric, base = table.get(schedule), table.get('Baseline')
+                if metric is None:
+                    st.warning('Lịch này chưa có số liệu. Bấm Chạy tất cả để tính lại, hoặc chọn lịch khác.')
+                    return
                 temporal, dyn = services.temporal(schedule), services.dynamics()
             parts.text("cap", f"Lịch lấy từ {services.SOURCE.get(origin, origin)}. SAT, DFA và fatigue được tính trực tiếp trên lịch đã chọn.")
         first, second = st.columns((1.25, 1))
