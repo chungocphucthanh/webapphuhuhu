@@ -1,5 +1,0 @@
-cb901008a7e8c11895b806d8cf867c0713ae9ebb84d3d82c9fcc9797f5730a69  0001-load-datasets-and-presentation-shell.patch
-ca17df6352720de891c53060612b867d578304f21c4796f7e4412213734713c3  0002-solve-m1-m2-and-plan-views.patch
-ede0a26c530edf97b779574a72d96a34a674c323be07612815a21f970a7cd670  0003-verify-m3-automata-and-navigation-core.patch
-5daf5cc21c9353864f9509dd6de4b9d112293d19d4ee2f8bbbc8ed20e2580401  0004-simulate-m4-dynamics-and-precompute.patch
-4fc425b20e240667be80a1e2ab4c6043b3730a74936b7fcf572f83bb9ae784ec  0005-wire-streamlit-app-tests-and-docs.patch

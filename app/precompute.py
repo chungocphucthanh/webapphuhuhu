@@ -31,7 +31,9 @@ DEFAULT_BUNDLE = APP_DIR / "m5_bundle.json"
 
 
 def _dataset_sha256() -> str:
-    return hashlib.sha256(Path(DEFAULT_PATH).read_bytes()).hexdigest()
+    # normalize CRLF -> LF: git stores LF but Windows checkouts convert to CRLF,
+    # so the raw bytes (and the hash) differ per platform and the bundle would be rejected
+    return hashlib.sha256(Path(DEFAULT_PATH).read_bytes().replace(bytes([13, 10]), bytes([10]))).hexdigest()
 
 
 def _strip_runtime(m1_result: dict) -> dict:
