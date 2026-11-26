@@ -1,4 +1,4 @@
-"""Trang 4 · Dynamics (Nguyên): hệ truy hồi fatigue, khớp tham số, ổn định, công bằng, ngưỡng mềm."""
+"""Trang 4 · Dynamics (Nguyên): hệ sai phân fatigue, hiệu chuẩn tham số, ổn định, công bằng, ngưỡng mềm."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from app.ui.stage import Idea, Module, render_module
 from app.ui.theme import vn
 
 REGIMES = {"Ổn định · a = 0,27": 0.27, "Trung hòa · a = 1": 1.0, "Phân kỳ · a = 1,05": 1.05}
-VERDICT = {"asymptotically stable": ("good", "Ổn định tiệm cận", "Nhiễu tắt dần, quỹ đạo quay về F*."),
-           "neutral": ("warn", "Trung hòa", "Nhiễu giữ nguyên, không quay về."),
-           "unstable": ("bad", "Phân kỳ", "Nhiễu lớn dần theo từng tuần.")}
+VERDICT = {"asymptotically stable": ("good", "Ổn định tiệm cận", "Khoảng cách tắt dần, quỹ đạo quay về F*."),
+           "neutral": ("warn", "Trung hòa", "Khoảng cách giữ nguyên, không quay về."),
+           "unstable": ("bad", "Không ổn định", "Khoảng cách tới F* lớn dần theo tuần.")}
 NAMES = (("Lịch gốc", "Baseline"), ("M2 Optimal", "M2 Optimal"), ("Tải đều", "Equal-load reference"))
 
 
@@ -35,17 +35,17 @@ def fig_calibration() -> None:
 
 
 def fig_regimes() -> None:
-    rows = [{"Tuần": n, "Nhiễu": round(a ** n, 4), "a": label.split(" · ")[1]} for label, a in REGIMES.items() for n in range(11)]
-    parts.text("lab", "Nhiễu còn lại sau n tuần (mức ban đầu = 1)")
-    charts.line_chart(rows, "Tuần", "Nhiễu", "a", height=160, x_title="tuần n", y_title="")
+    rows = [{"Tuần": n, "F[n] − F*": round(a ** n, 4), "a": label.split(" · ")[1]} for label, a in REGIMES.items() for n in range(11)]
+    parts.text("lab", "Khoảng cách tới F* còn lại sau n tuần (mức ban đầu = 1)")
+    charts.line_chart(rows, "Tuần", "F[n] − F*", "a", height=160, x_title="tuần n", y_title="")
 
 
 def fig_fairness() -> None:
     trajectories = services.dynamics()["trajectories"]
-    rows = [{"Tuần": n, "Độ lệch": round(float(np.ptp(state)), 4), "Lịch": f"{label} · còn {vn(float(np.ptp(trajectories[key][8])))}"}
+    rows = [{"Tuần": n, "Độ trải": round(float(np.ptp(state)), 4), "Lịch": f"{label} · còn {vn(float(np.ptp(trajectories[key][8])))}"}
             for label, key in NAMES for n, state in enumerate(trajectories[key][:9])]
-    parts.text("lab", "Độ lệch fatigue (max − min) giữa 73 giám thị")
-    charts.line_chart(rows, "Tuần", "Độ lệch", "Lịch", height=160, x_title="tuần, với tải tuần không đổi", y_title="")
+    parts.text("lab", "Độ trải fatigue (max − min) giữa 73 cán bộ")
+    charts.line_chart(rows, "Tuần", "Độ trải", "Lịch", height=160, x_title="tuần, với tải tuần không đổi", y_title="")
 
 
 def fig_threshold() -> None:
@@ -66,51 +66,51 @@ def _use(a: float) -> None:
 def lab() -> None:
     title, presets = st.columns((3, 5))
     with title:
-        parts.text("h2", "Thử ngay: đổi a và xem nhiễu tắt hay lớn lên")
+        parts.text("h2", "Thử ngay: đổi a và xem khoảng cách tới F*")
     st.session_state.setdefault("m4_a", 0.27)
     with presets:
         for column, (label, a) in zip(st.columns(len(REGIMES)), REGIMES.items()):
             column.button(label, key=f"m4_preset_{a}", on_click=_use, args=(a,), use_container_width=True)
     control, chart, status = st.columns((1, 1.5, 1.2))
     with control:
-        a = st.slider("Hệ số giữ lại a", 0.0, 1.2, key="m4_a", step=0.01)
+        a = st.slider("Hệ số lưu giữ a", 0.0, 1.2, key="m4_a", step=0.01)
         parts.kpis([("", f"a = {vn(a)}", "a = 1 là ranh giới ổn định")])
         parts.text("mono", "F[n] − F* = aⁿ · (F[0] − F*)")
     with chart:
-        charts.line_chart([{"Tuần": n, "Nhiễu": round(a ** n, 4)} for n in range(11)], "Tuần", "Nhiễu", height=128,
-                          x_title="tuần n", y_title="nhiễu còn lại")
+        charts.line_chart([{"Tuần": n, "F[n] − F*": round(a ** n, 4)} for n in range(11)], "Tuần", "F[n] − F*", height=128,
+                          x_title="tuần n", y_title="khoảng cách còn lại")
     with status:
         label, equilibrium = services.regime(a)
         parts.verdict(*VERDICT[label])
-        parts.kpis([("Sau 4 tuần, nhiễu còn", f"{vn(a ** 4 * 100, 1)}%", ""),
+        parts.kpis([("Khoảng cách sau 4 tuần", f"{vn(a ** 4 * 100, 1)}%", ""),
                     ("Điểm cân bằng F*", vn(equilibrium) if equilibrium is not None else "không hút", "")])
 
 
 MODULE = Module(
     key="m4", label="Module 4 · Dynamics", presenter="Nguyên", start=3, lab=lab,
     fn=("calibrate()", "fixed_point()", "simulate()", "stability()"), ds=("Linear recurrence", "Pooled lag-one OLS"),
-    bigo=("simulate · Time: O(n·W)", "Space: O(n·W)"), note="n: số giám thị · W: số tuần mô phỏng",
+    bigo=("simulate · Time: O(n·W)", "Space: O(n·W)"), note="n: số cán bộ · W: số tuần mô phỏng",
     ideas=(
-        Idea("Fatigue là hệ truy hồi", "Fatigue tuần sau tính từ ", "tuần này", ".",
-             "F[n+1] = a·F[n] + b·ℓ − r·ρ · hướng B: cả nhóm là một vector, mỗi giám thị một thành phần",
-             (("a · phần giữ lại", "Tỷ lệ fatigue còn lại sau một tuần."),
+        Idea("Fatigue là hệ sai phân", "Fatigue tuần sau tính từ ", "tuần này", ".",
+             "F[n+1] = a·F[n] + b·ℓ − r·ρ · hướng B: cả nhóm là một vector, mỗi cán bộ một thành phần",
+             (("a · phần lưu giữ", "Tỷ lệ fatigue còn lại sau một tuần."),
               ("b · phần cộng thêm", "Tải tuần ℓ càng cao, fatigue cộng thêm càng nhiều."),
               ("Vì sao không dùng tổng tải", "Tổng tải cộng dồn có trị riêng 1, không có điểm cân bằng.")), fig_recurrence),
-        Idea("Khớp tham số", "Tham số được ", "khớp từ dữ liệu", ", không tự đặt.",
-             "OLS độ trễ 1 trên tải tuần của 73 giám thị qua 4 khối tuần",
+        Idea("Hiệu chuẩn tham số", "Tham số ", "hiệu chuẩn từ dữ liệu", ", không tự đặt.",
+             "OLS gộp trễ bậc 1 trên tải tuần của 73 cán bộ qua 4 khối tuần",
              (("a = 0,2706", "Hệ số góc của hồi quy tải tuần sau theo tải tuần trước."),
               ("b = 1 − a = 0,7294", "Chọn để điểm cân bằng trung bình bằng tải tuần trung bình 2,73."),
-              ("r = 0, và khớp yếu", "Dữ liệu không đo được phần hồi phục. R² = 0,06.")), fig_calibration),
+              ("r = 0, R² thấp", "Không đo được phần nghỉ ngơi; R² = 0,06 vì thi dồn cuối kỳ.")), fig_calibration),
         Idea("Cân bằng và ổn định", "Mọi quỹ đạo tiến về ", "điểm cân bằng F*", ".",
              "F* = b·ℓ / (1 − a) · Jacobian là a·I nên mọi trị riêng bằng a",
              (("|a| < 1: ổn định", "Khoảng cách tới F* nhân với a sau mỗi tuần."),
-              ("|a| = 1: trung hòa", "Nhiễu không tắt, cũng không lớn lên."),
+              ("|a| = 1: trung hòa", "Khoảng cách không tắt, cũng không lớn lên."),
               ("|a| > 1: phân kỳ", "Đã kiểm chứng bằng số tại a = 1,05.")), fig_regimes),
-        Idea("Công bằng là điểm hút", "Tải đều thì độ lệch fatigue tự ", "co về 0", ".",
+        Idea("Công bằng là điểm hút", "Tải đều thì độ trải fatigue tự ", "co về 0", ".",
              "Khi mọi người cùng tải: spread(F[n]) = |a|ⁿ · spread(F[0]), với a = 0,2706",
              (("Điểm cân bằng theo tải", "Ai có tải tuần cao hơn thì F* cao hơn."),
-              ("Ổn định vì |a| < 1", "Mỗi tuần nhiễu chỉ còn 27%."),
-              ("Lệch ít là công bằng", "Lịch gốc lệch 4,15. M2 còn 0,26. Tải đều về 0.")), fig_fairness),
+              ("Ổn định vì |a| < 1", "Mỗi tuần khoảng cách tới F* chỉ còn 27%."),
+              ("Độ trải nhỏ là công bằng", "Lịch gốc trải 4,15. M2 còn 0,26. Tải đều về 0.")), fig_fairness),
         Idea("Ngưỡng mềm trong ILP", "Thêm ngưỡng H, phần vượt ngưỡng về ", "0", ".",
              "H = 5,66 là phân vị 95% của fatigue lịch gốc; vượt H thì bị phạt, không bị cấm",
              (("Lịch gốc", "Tổng vượt ngưỡng 16,31; fatigue đỉnh 13,12."),

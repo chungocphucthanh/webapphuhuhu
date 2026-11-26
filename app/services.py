@@ -20,7 +20,7 @@ from m4_dynamics.workload import weekly_workload
 SCHEDULES = {"Lịch gốc": "Baseline", "M2 Optimal": "M2 Optimal", "M2 + DFA": "M2 + R1xR2xR3",
              "M4 fatigue-aware": "M4 Fatigue-Aware"}
 M1_CASES = {"Toy · SAT": ("toy", "sat"), "Toy · UNSAT": ("toy", "unsat"),
-            "Lát thật · SAT": ("m1_slice", "sat"), "Lát thật · UNSAT": ("m1_slice", "unsat")}
+            "Lát cắt · SAT": ("m1_slice", "sat"), "Lát cắt · UNSAT": ("m1_slice", "unsat")}
 SLICES = {"Toy 3 × 2": "toy", "Tuần 1": "week1", "2 tuần": "week2"}
 SOURCE = {"precomputed bundle (app/m5_bundle.json)": "gói tính trước",
           "precomputed bundle + live DFA": "gói tính trước, DFA tính tại chỗ",

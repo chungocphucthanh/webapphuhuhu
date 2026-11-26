@@ -23,7 +23,7 @@ def _tile_m1(result: dict) -> None:
         if result["satisfiable"]:
             parts.verdict("good", "SAT", f"Có lịch thỏa cả H1, H2, H3 · {size}")
         else:
-            parts.verdict("bad", "UNSAT", f"Lõi mâu thuẫn gồm {len(result['unsat_core'])} ràng buộc · {size}")
+            parts.verdict("bad", "UNSAT", f"Lõi UNSAT gồm {len(result['unsat_core'])} ràng buộc · {size}")
 
 
 def _tile_m2(rows: list[dict], metric: dict, base: dict | None, week: int) -> None:
@@ -32,8 +32,8 @@ def _tile_m2(rows: list[dict], metric: dict, base: dict | None, week: int) -> No
         parts.text("eyebrow", f"M2 · Lịch phân công tuần {week}")
         note = (lambda key, digits: f"lịch gốc {vn(base[key], digits)}") if base else (lambda key, digits: "")
         parts.kpis([("Tải đỉnh", str(metric["max_load"]), note("max_load", 0)), ("L1", vn(metric["l1"]), note("l1", 2)),
-                    ("Lệch cơ sở", str(metric["location"]), note("location", 0))])
-        parts.table(["Ca thi", "Cơ sở", "Cần", "Giám thị được xếp"],
+                    ("Trái nguyện vọng", str(metric["location"]), note("location", 0))])
+        parts.table(["Ca thi", "Cơ sở", "Định ngạch", "Cán bộ được xếp"],
                     [(f"{r['date'][8:]}/{r['date'][5:7]} · {r['time'][:5]}", r["campus"], r["demand"], r["invigilators"])
                      for r in rows[:5]], ("", "", "num", "mono"))
         if len(rows) > 5:
@@ -77,7 +77,7 @@ def _tile_m4(dyn: dict, schedule: str) -> None:
         stable = dyn["stability"]["classification"] == "asymptotically stable"
         parts.html(parts.flag(stable, f"|a| = {vn(dyn['stability']['spectral_radius'])}, "
                                       + ("ổn định" if stable else "không ổn định"))
-                   + f' <span class="iap-cap">Độ lệch cân bằng {vn(summary["equilibrium_spread"])} · '
+                   + f' <span class="iap-cap">Độ trải cân bằng {vn(summary["equilibrium_spread"])} · '
                      f'tổng vượt ngưỡng H {vn(summary["observed_threshold_excess"])}</span>')
 
 
@@ -132,4 +132,4 @@ def render() -> None:
             _tile_m4(dyn, schedule)
     parts.callout(("solve_instance()", "solve()", "DFA.accepts()", "simulate()", "check_schedule()"),
                   ("Caching", "Precomputed bundle"), ("check_schedule · Time: O(n·|O| + P)",),
-                  "n: số giám thị · |O|: số cặp ca trùng giờ · P: số lượt phân công")
+                  "n: số cán bộ · |O|: số cặp ca trùng giờ · P: số lượt phân công")

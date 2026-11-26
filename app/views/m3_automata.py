@@ -8,7 +8,7 @@ from app import services
 from app.ui import charts, parts
 from app.ui.stage import Idea, Module, render_module
 
-PRESETS = {"Hợp lệ": "MM--A-N-M", "3 ngày liền": "A-MMM--", "Đêm rồi đi làm": "M-NA---",
+PRESETS = {"Hợp lệ": "MM--A-N-M", "3 ngày liền": "A-MMM--", "Tối xong vẫn làm": "M-NA---",
            "5 ngày trong tuần": "MM-MM-M", "CB003 · lịch gốc": "-N---A--NNNN---N-----M----A"}
 MAX_DAYS = 60
 
@@ -24,9 +24,9 @@ DFA_R1 = """<svg role="img" aria-label="DFA của luật R1 gồm run0, run1, ru
 
 def fig_strings() -> None:
     rows = services.temporal("Baseline")["staff_rows"][:6]
-    parts.text("lab", "Sáu giám thị đầu của lịch gốc, mỗi ô một ngày")
+    parts.text("lab", "Sáu cán bộ đầu của lịch gốc, mỗi ô một ngày")
     parts.roster([(row["staff_id"], row["roster_string"]) for row in rows])
-    parts.text("cap", "M sáng · A chiều · N đêm · - nghỉ. Ngày có hai ca lấy ký hiệu ưu tiên cao hơn.")
+    parts.text("cap", "M sáng · A chiều · N tối · - nghỉ. Ngày có hai ca lấy ký hiệu ưu tiên cao hơn.")
 
 
 def fig_dfa() -> None:
@@ -39,7 +39,7 @@ def fig_minimize() -> None:
     for label, reachable, minimal in services.suite()["counts_table"]:
         name = label.replace(" x ", "×")
         rows += [{"DFA": name, "Trạng thái": reachable, "Loại": "Tới được"},
-                 {"DFA": name, "Trạng thái": minimal, "Loại": "Sau minimize"}]
+                 {"DFA": name, "Trạng thái": minimal, "Loại": "Tối giản"}]
     parts.text("lab", "Số trạng thái trước và sau tối giản (trục dọc logarit)")
     charts.column_chart(rows, "DFA", "Trạng thái", "Loại", height=164, x_title="", y_title="", log=True,
                         sort=list(dict.fromkeys(row["DFA"] for row in rows)))
@@ -95,7 +95,7 @@ def lab() -> None:
     with presets:
         for column, (label, word) in zip(st.columns(len(PRESETS)), PRESETS.items()):
             column.button(label, key=f"m3_preset_{label}", on_click=_use, args=(word,), use_container_width=True)
-    typed = st.text_input("Chuỗi ngày (M sáng · A chiều · N đêm · - nghỉ)", key="m3_word", max_chars=MAX_DAYS)
+    typed = st.text_input("Chuỗi ngày (M sáng · A chiều · N tối · - nghỉ)", key="m3_word", max_chars=MAX_DAYS)
     word = "".join(c for c in typed.upper() if c in "MAN-")[:MAX_DAYS]
     if not word:
         st.info("Chuỗi rỗng. Gõ các ký hiệu M, A, N hoặc dấu gạch, hoặc bấm một chuỗi mẫu.")
@@ -118,7 +118,7 @@ def lab() -> None:
         parts.flags((not day, f"{rule}: vi phạm ở ngày {day}" if day else f"{rule}: đạt") for rule, day in hits.items())
     with scale:
         table = services.temporal_table()
-        parts.text("lab", "Áp lên 73 chuỗi thật: số bị từ chối")
+        parts.text("lab", "Trên 73 chuỗi thật: số bị từ chối")
         parts.hbars([(label, table[key]["rejected"],
                       str(table[key]["rejected"]) if table[key]["rejected"] else f"0 · {table[key]['dfa_accepted']} hợp lệ")
                      for label, key in list(services.schedule_labels().items())[:3]])
@@ -138,20 +138,20 @@ MODULE = Module(
               ("Ngày không có ca", "Ghi dấu gạch, không bỏ qua ngày.")), fig_strings),
         Idea("Mỗi luật là một DFA", "Làm 3 ngày liên tiếp, DFA rơi vào ", "dead", ".",
              "R1 · Mỗi luật thời gian là một DFA trên Σ = {M, A, N, -}",
-             (("Mỗi ngày là một ký hiệu", "M sáng, A chiều, N đêm, - nghỉ."),
+             (("Mỗi ngày là một ký hiệu", "M sáng, A chiều, N tối, - nghỉ."),
               ("Đọc từ trái sang phải", "Rơi vào dead là vi phạm."),
-              ("Ba luật R1, R2, R3", "Tối đa 2 ngày liền; sau ca đêm phải nghỉ; tối đa 4 ngày làm trong 7 ngày.")), fig_dfa),
+              ("Ba luật R1, R2, R3", "Tối đa 2 ngày liền; sau ca tối phải nghỉ; tối đa 4 ngày làm trong 7 ngày.")), fig_dfa),
         Idea("Tích và tối giản", "Ghép ba luật: 259 trạng thái còn ", "15", ".",
              "product() lấy giao ba DFA, minimize() gộp các trạng thái không phân biệt được",
              (("R1 × R2", "11 trạng thái tới được, tối giản còn 4."),
               ("R1 × R2 × R3", "259 trạng thái tới được, tối giản còn 15."),
               ("Thêm R4", "2.072 trạng thái, tối giản còn 99.")), fig_minimize),
         Idea("Đưa DFA vào ILP", "Trải DFA theo 27 ngày thành ", "ràng buộc luồng", ".",
-             "Mỗi giám thị một đơn vị luồng đi từ q0 đến một trạng thái chấp nhận: SRC, FLOW, LINK",
+             "Mỗi cán bộ một đơn vị luồng đi từ q0 đến một trạng thái chấp nhận: SRC, FLOW, LINK",
              (("Giải lại M2 kèm luật", "73/73 chuỗi được chấp nhận."),
-              ("Cái giá", "Mục tiêu từ 59,85 lên 66,57; lệch cơ sở từ 28 lên 36."),
+              ("Cái giá", "Mục tiêu từ 59,85 lên 66,57; trái nguyện vọng từ 28 lên 36."),
               ("Mô hình lớn hơn", "4.377 biến thành 20.600 biến; vẫn giải tối ưu.")), fig_flow),
-        Idea("Ranh giới chính quy", "Đếm lệch có chặn thì ", "chính quy", "; đếm bằng nhau thì không.",
+        Idea("Ranh giới chính quy", "Đếm lệch bị chặn thì ", "chính quy", "; bằng nhau chính xác thì không.",
              "Pumping lemma trên L ∩ M*A* cho thấy #M = #A cần bộ nhớ không giới hạn",
              (("Lệch không quá c", "DFA 2c + 2 trạng thái, tính cả bẫy (R4, c = 3)."),
               ("Số M bằng số A", "Không chính quy: bơm phần M làm lệch số đếm."),

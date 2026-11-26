@@ -35,7 +35,7 @@ def render() -> None:
         ("MODULE 3 · AUTOMATA · PHÚC", "Lịch có hợp lệ theo thời gian không?",
          f"{temporal[best]['dfa_accepted']} chuỗi được chấp nhận" + (" (lịch gốc)" if best == "Baseline" else ""), False),
         ("MODULE 4 · DYNAMICS · NGUYÊN", "Về lâu dài có công bằng không?",
-         f"Độ lệch {vn(spread['Baseline'])} còn {vn(spread['M2 Optimal'])}", False),
+         f"Độ trải {vn(spread['Baseline'])} còn {vn(spread['M2 Optimal'])}", False),
         ("MODULE 5 · TÍCH HỢP · THÀNH", "Kết luận của 4 mô hình", "Một trang: SAT, lịch, cờ DFA, fatigue", True),
     ], tall=True)
     with st.container():
@@ -43,7 +43,7 @@ def render() -> None:
         numbers, chart = st.columns((1, 1.6))
         with numbers:
             parts.text("h2", "Dữ liệu đang dùng")
-            parts.kpis([("giám thị", str(len(inst.staff_ids)), ""), ("ca thi", str(len(inst.session_names)), ""),
+            parts.kpis([("cán bộ", str(len(inst.staff_ids)), ""), ("ca thi", str(len(inst.session_names)), ""),
                         ("lượt phân công", str(total), ""), ("ngày", str(span), "")])
             weights = " · ".join(f"{name} {vn(value)}" for name, value in zip(("LOC", "FAT", "TRV"), inst.soft_weights))
             parts.text("cap", f"CS1: {inst.campus.count('CS1')} ca · CS2: {inst.campus.count('CS2')} ca · "

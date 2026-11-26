@@ -15,7 +15,7 @@ from app.ui import parts
 ROOT = Path(__file__).resolve().parents[2]
 APP_SCRIPT = str(ROOT / "app" / "app.py")
 IDEAS = {"m1": 4, "m2": 5, "m3": 5, "m4": 5}
-LANDMARK = {"overview": "Dữ liệu đang dùng", "m1": "Thử ngay: đổi kịch bản", "m2": "Thử ngay: giải một lát dữ liệu bằng CBC",
+LANDMARK = {"overview": "Dữ liệu đang dùng", "m1": "Thử ngay: đổi kịch bản", "m2": "Thử ngay: giải một lát cắt dữ liệu bằng CBC",
             "m3": "Thử ngay: gõ một chuỗi ngày", "m4": "Thử ngay: đổi a", "m5": "<mark>4 mô hình</mark>"}
 
 
@@ -107,7 +107,7 @@ def test_m2_solves_real_slices_with_cbc_and_links_the_dfa_rules():
     at = page("m2")
     body = text(at)
     assert "<small>Tải đỉnh</small><b>1</b><em>lịch gốc 3</em>" in body
-    assert "0 vi phạm H1, H2, H3" in body and "Giám thị được xếp" in body
+    assert "0 vi phạm H1, H2, H3" in body and "Cán bộ được xếp" in body
 
     at.radio(key="m2_slice").set_value("2 tuần").run()
     at.checkbox(key="m2_enforce").check().run()
@@ -139,7 +139,7 @@ def test_m3_word_lab_flags_the_first_violating_day():
     at.text_input(key="m3_word").set_value("xyz").run()
     assert healthy(at) and any("Chuỗi rỗng" in item.value for item in at.info)
 
-    at.button(key="m3_preset_Đêm rồi đi làm").click().run()
+    at.button(key="m3_preset_Tối xong vẫn làm").click().run()
     assert at.text_input(key="m3_word").value == "M-NA---" and "R2: vi phạm ở ngày 4" in text(at)
 
 
@@ -151,7 +151,7 @@ def test_m4_slider_moves_between_the_three_stability_regimes():
     at.slider(key="m4_a").set_value(1.0).run()
     assert "<b>Trung hòa</b>" in text(at)
     at.slider(key="m4_a").set_value(1.05).run()
-    assert healthy(at) and "<b>Phân kỳ</b>" in text(at) and "không hút" in text(at)
+    assert healthy(at) and "<b>Không ổn định</b>" in text(at) and "không hút" in text(at)
     at.button(key="m4_preset_0.27").click().run()
     assert at.slider(key="m4_a").value == 0.27 and "<b>Ổn định tiệm cận</b>" in text(at)
 
