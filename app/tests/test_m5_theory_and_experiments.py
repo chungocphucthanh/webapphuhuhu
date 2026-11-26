@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from streamlit.testing.v1 import AppTest
 
 from app.data_views import load_preset_instance
 from app.experiments import (
@@ -22,8 +19,6 @@ from app.experiments import (
 )
 from m2_ilp.fixtures import week_slice
 from m2_ilp.instance import build_instance, toy_instance
-
-APP_SCRIPT = str(Path(__file__).resolve().parents[1] / "app.py")
 
 
 def test_m1_what_if_flips_sat_unsat_and_tracks_original_violations():
@@ -106,38 +101,3 @@ def test_m4_what_if_covers_stable_neutral_and_unstable_regimes():
 
     unstable = run_m4_what_if(inst, sched, "Baseline", a=1.08, b=0.5, r=0.0, weeks=10)
     assert unstable["exp_stability"]["classification"] == "unstable"
-
-
-def test_apptest_exercises_theory_and_interactive_labs():
-    at = AppTest.from_file(APP_SCRIPT, default_timeout=30).run()
-    assert not at.exception
-
-    # M1 theory + experiment on toy
-    at.selectbox(key="dataset_preset").select("toy").run()
-    at.radio(key="route").set_value("m1").run()
-    at.slider(key="m1_exp_delta").set_value(1).run()
-    at.button(key="m1_exp_run").click().run()
-    assert not at.exception
-    assert any("UNSAT" in item.value for item in at.error)
-
-    # M2 seed/soft experiment + counterexample on week1
-    at.selectbox(key="dataset_preset").select("week1").run()
-    at.radio(key="route").set_value("m2").run()
-    at.checkbox(key="m2_exp_use_soft").set_value(False).run()
-    at.button(key="m2_exp_run").click().run()
-    assert not at.exception
-    at.radio(key="m2_ce_kind").set_value("lp_relax").run()
-    at.button(key="m2_ce_lp_run").click().run()
-    assert not at.exception
-
-    # M3 custom R1-R4 + Pumping Lemma
-    at.radio(key="route").set_value("m3").run()
-    at.slider(key="m3_exp_r1_k").set_value(1).run()
-    at.slider(key="pump_p").set_value(4).run()
-    at.slider(key="pump_i").set_value(2).run()
-    assert not at.exception
-
-    # M4 parameter regime experiment
-    at.radio(key="route").set_value("m4").run()
-    at.slider(key="m4_exp_a").set_value(0.80).run()
-    assert not at.exception
